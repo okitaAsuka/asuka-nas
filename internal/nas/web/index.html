@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>asuka-nas · 本地管理</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <aside>
+      <a class="brand" href="/">asuka<span>nas</span></a>
+      <p class="caption">自己的媒体库，明确的每一步。</p>
+      <nav aria-label="主导航">
+        <button data-tab="jobs" class="selected">任务与入库</button
+        ><button data-tab="subscriptions">订阅管理</button
+        ><button data-tab="rules">命名规则</button
+        ><button data-tab="events">事件记录</button
+        ><button data-tab="health">健康与接入</button>
+      </nav>
+      <div class="local">
+        <span class="dot"></span>仅本机管理<br /><small
+          >不依赖模型 · 保留做种源文件</small
+        >
+      </div>
+    </aside>
+    <main>
+      <header>
+        <div>
+          <div class="eyebrow">ASUKA / CONTROL ROOM</div>
+          <h1 id="heading">任务与入库</h1>
+        </div>
+        <button id="refresh">刷新状态</button>
+      </header>
+      <div id="message" role="status" aria-live="polite"></div>
+      <div id="view" aria-busy="true">
+        <p class="empty">正在连接本地服务…</p>
+      </div>
+      <footer>
+        硬链接入库 · 不覆盖、不删除源文件 · Emby 确认发现后才显示就绪
+      </footer>
+    </main>
+  </body>
+</html>

@@ -243,3 +243,11 @@ internal/nas/files_test.go:func TestConfirmationRechecksConflict(t *testing.T) {
 ## 产品整链审查 P1：迁移前实例锁
 
 独立报告 PRODUCT_REVIEW.txt（Library 审查包 v4）复现第二实例在持锁失败前把 schema4 改5。统一 OpenLockedStore 先准备私有父目录、取 flock，再打开可写 SQLite/迁移；daemon 与 rules CLI 共用。真实子进程在另一个进程持锁时启动失败，断言 schema4、缺失的迁移表、哨兵内容保持不变。SIGTERM 原回归保持。其余产品矩阵与待接入项见 WEB_PLAN.md；底层测试通过不等于通知产品闭环。
+
+## 中文管理面验收
+
+management_test覆盖Host/Origin/CSRF、SSRF来源引用限制、秘密不出站、大小限制、单写在途、订阅持久启停、预览不落库、规则审计/epoch、确认CAS、冻结计划重试、HTTP取消等待。startup_lock_test真实第二进程覆盖run/serve/rules。
+
+TestBrowserProductLoop + tests/browser_e2e.py使用实际Chromium与临时文件/HTTP，操作真实界面；fake控制只用于测试进程模拟外部下载和发现，不存在于产品。验证订阅管理→人工文件确认→已导入但未发现→发现事件；启用规则→下集自动；权限故障部分合集SQLite重开后UI重试。断言同inode、没有重下、PlanDigest不变、每job discovered一次。浏览器动态故障包括不可信HTML、双击、延迟旧响应和503恢复；截图经目视检查，仅存在/tmp，不上传Library。
+
+独立审查包v4提供的independent_v4_acceptance_test.go原样纳入，继续锁定分隔token、旧group/alias兼容和历史路径/digest不变、未知规范化版本阻塞。所有旧复现文件不改断言。

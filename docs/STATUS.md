@@ -1,6 +1,6 @@
 # 当前状态 / 2026-10-12
 
-当前最新阶段：独立复验5类缺陷修复，schema v5 / parser v3，见文末及 REVIEW.md。下文旧阶段按历史保留；生产就绪未获确认。
+当前最新阶段：本机中文管理 UI/API，迁移前实例锁修复，schema v5 + 控制扩展 v1 / parser v4。见 LOCAL_MANAGEMENT.md。下文旧阶段按历史保留；生产就绪未获确认。
 
 ## 提交阶段
 
@@ -82,3 +82,14 @@ schema v4 添加整包目标预约及逐文件 pending/intended/linked/discovere
 ## 最终定向复验两项残余修复
 
 统一媒体分隔 token 边界修复 _SP_/_OVA_；版本化比较视图兼容旧括号 alias，不修改历史规则或Plan。未知规范化版本/不可兼容身份直接阻塞。parser v4、identity_normalization_version=1（旧未标版本0兼容）、schema仍5。101顶层测试及子测试/race/vet/build通过，原独立v3断言保持；待外部独立复验，无生产就绪声明。
+
+## 本地管理产品首版（8484e43 之后）
+
+- `eec2242` 修复独立审查 P1：先取实例锁，再打开可写 SQLite/迁移；真实子进程覆盖 run/serve/rules，锁失败保持schema/表/内容不变。Docker CMD显式run，CLI默认仍只校验。
+- Go embed 中文界面和实际 `/api`：持久来源引用订阅、启停/编辑/重试；分页任务/来源证据/阶段/做种期限；规则新版本、解释预览、独立启停和审计；单视频指纹方案确认、冻结计划详情、安全重试；Emby发现与事件。没有展示假产品数据。
+- 显式 serve只允许回环IP；精确Host/Origin、CSRF进程内nonce、JSON请求、CSP、64KiB请求体、单写在途、版本校验、固定错误码。管理API不返回URL/GUID/magnet/凭据。HTTP取消并等处理器结束，再关闭数据库。
+- 控制扩展v1持久化，不改领域schema5/历史Plan；配置来源URL仍由部署文件授权。没有任意URL输入；停订阅不取消已存在任务或停止做种保障。
+- 实际Chromium桌面和390px手机视窗验收：订阅→RSS→qB→指纹人工确认→硬链接→Emby实际发现→事件；规则启用后的下一集自动；部分合集故障后真实重开SQLite并通过UI重试；XSS（订阅名与RSS标题）、快速导航晚响应、双击、HTTP错误恢复。Go测试还核对真实源/目标同inode、下载次数不增加、全部视频确认、最终事件一次。不是用静态build代替UI验收。
+- 最终验证：112个顶层测试定义（含独立v4新增3项及opt-in浏览器测试）；make verify通过格式/vet/race/build，make verify-ui单独执行真实浏览器。独立v2/v3/v4断言不改。Actions已增加相同浏览器门，但未推送、未运行真实远端CI。
+
+未完成：LAN身份认证/权限、真实NAS与Docker运行/具体上游兼容、gateway持久消费outbox与Discord发送、目录/NFO/元数据学习、模型建议、已冻结语义冲突的人工解除流程、任意合集手工逐文件改排。已有基于明确有界规则的整包导入/重放保持。未改asuka-agent；未访问真实服务、未重试GitHub或部署。事件已可读不等于通知已送达；本阶段是可用的本机管理首版，尚非完整NAS通知产品。

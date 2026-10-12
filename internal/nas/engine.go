@@ -242,6 +242,9 @@ func PlanDigest(p *Plan) string {
 func (e *Engine) Propose(ctx context.Context, id, source, target string) (*Plan, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	return e.propose(ctx, id, source, target)
+}
+func (e *Engine) propose(ctx context.Context, id, source, target string) (*Plan, error) {
 	j, err := e.Store.Get(ctx, id)
 	if err != nil {
 		return nil, err
@@ -276,6 +279,9 @@ func (e *Engine) Propose(ctx context.Context, id, source, target string) (*Plan,
 func (e *Engine) Confirm(ctx context.Context, id string, version int, digest string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	return e.confirm(ctx, id, version, digest)
+}
+func (e *Engine) confirm(ctx context.Context, id string, version int, digest string) error {
 	j, err := e.Store.Get(ctx, id)
 	if err != nil {
 		return err

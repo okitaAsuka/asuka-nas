@@ -1,4 +1,6 @@
-# v1 agent 契约（设计，HTTP listener 尚未实现）
+# v1 agent 契约（未来远程接口）
+
+当前已实现 `/api` 本机管理接口，见 [LOCAL_MANAGEMENT.md](LOCAL_MANAGEMENT.md)。下文 `/v1`、Bearer和gateway仍是未实现的设计，不能与当前本机入口混用。
 
 部署时用户提供静态 Bearer token，仅用于本服务；不由开发流程生成。仅可信内网，外部访问需要 TLS。agent 不得直连 SQLite。
 

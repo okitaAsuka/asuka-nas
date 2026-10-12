@@ -55,7 +55,7 @@ func TestStartupLockBeforeMigration(t *testing.T) {
 	if err = os.WriteFile(path, b, 0600); err != nil {
 		t.Fatal(err)
 	}
-	for _, mode := range []string{"run", "rules"} {
+	for _, mode := range []string{"run", "serve", "rules"} {
 		t.Run(mode, func(t *testing.T) {
 			child := exec.Command(os.Args[0], "-test.run=^TestStartupLockBeforeMigration$")
 			child.Env = []string{"NAS_LOCK_CHILD=1", "NAS_LOCK_CONFIG=" + path, "NAS_LOCK_MODE=" + mode}

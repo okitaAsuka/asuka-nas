@@ -1,5 +1,7 @@
 # 首版设计 / 2026-10-12
 
+本文保留阶段演进记录。最新 UI/API 与运行边界见 LOCAL_MANAGEMENT.md、WEB_PLAN.md；当前支持显式 -serve 本机管理，不支持 LAN 鉴权或 Discord。
+
 ## 范围与所有权
 
 Linux NAS 上 Docker 单实例 Go 1.26.9 服务，SQLite 持久状态，无模型依赖。

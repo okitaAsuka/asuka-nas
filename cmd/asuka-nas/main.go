@@ -28,6 +28,8 @@ func run() error {
 	}
 	path := flag.String("config", "config.json", "deployment configuration")
 	execute := flag.Bool("run", false, "run the local polling daemon (explicit opt-in)")
+	serve := flag.Bool("serve", false, "serve local management UI and daemon (explicit opt-in)")
+	listen := flag.String("listen", "127.0.0.1:8787", "loopback address only")
 	flag.Parse()
 	file, err := os.Open(*path)
 	if err != nil {
@@ -38,7 +40,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if !*execute {
+	if !*execute && !*serve {
 		fmt.Println("configuration_valid (no network or file operations executed)")
 		return nil
 	}
@@ -70,5 +72,24 @@ func run() error {
 	engine := &nas.Engine{Store: store, Files: files, QB: qb, Emby: emby, Library: cfg.Library}
 	daemon := &nas.Daemon{Config: cfg, Engine: engine, Source: nas.NewSourceClient(time.Duration(cfg.RequestTimeoutSeconds)*time.Second, cfg.RSSMaxBytes, cfg.TorrentMaxBytes, cfg.MaxItems), Logger: slog.New(slog.NewJSONHandler(os.Stderr, nil))}
 	daemon.Source.Gap = time.Duration(cfg.FetchIntervalMillis) * time.Millisecond
-	return daemon.Run(ctx)
+	if !*serve {
+		return daemon.Run(ctx)
+	}
+	listener, err := nas.ListenManagement(*listen)
+	if err != nil {
+		return err
+	}
+	defer listener.Close()
+	management, err := nas.NewManagement(ctx, daemon, listener.Addr().String())
+	if err != nil {
+		return err
+	}
+	// HTTP 与轮询共享取消；等待所有写操作结束后才释放数据库。
+	results := make(chan error, 2)
+	go func() { results <- daemon.Run(ctx) }()
+	go func() { results <- nas.ServeManagement(ctx, listener, management) }()
+	err = <-results
+	cancel()
+	other := <-results
+	return errors.Join(err, other)
 }

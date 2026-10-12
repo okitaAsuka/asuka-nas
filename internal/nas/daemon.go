@@ -13,16 +13,40 @@ import (
 
 // Daemon 仅包含单机 source 和 job 两条循环，没有通用调度平台或 HTTP listener。
 type Daemon struct {
-	Config Config
-	Engine *Engine
-	Source *SourceClient
-	Logger *slog.Logger
+	sourceMu sync.Mutex
+	Managed  bool
+	Config   Config
+	Engine   *Engine
+	Source   *SourceClient
+	Logger   *slog.Logger
 }
 
 // PollSources 各订阅先预约，再请求；某订阅失败不阻塞下一订阅。
 func (d *Daemon) PollSources(ctx context.Context, now time.Time) error {
+	d.sourceMu.Lock()
+	defer d.sourceMu.Unlock()
+	subs := d.Config.Subscriptions
+	if d.Managed {
+		managed, err := d.Engine.Store.ManagedSubscriptions(ctx)
+		if err != nil {
+			return err
+		}
+		subs = nil
+		for _, m := range managed {
+			if !m.Enabled {
+				continue
+			}
+			for _, p := range d.Config.Subscriptions {
+				if p.ID == m.Profile {
+					p.ID = m.ID
+					subs = append(subs, p)
+					break
+				}
+			}
+		}
+	}
 	var failures []error
-	for _, sub := range d.Config.Subscriptions {
+	for _, sub := range subs {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -52,6 +76,12 @@ func (d *Daemon) Run(ctx context.Context) error {
 	d.Config.defaults()
 	if err := d.Config.Validate(); err != nil {
 		return err
+	}
+	if !d.Managed {
+		if err := d.Engine.Store.InitControl(ctx, d.Config.Subscriptions); err != nil {
+			return err
+		}
+		d.Managed = true
 	}
 	if d.Logger == nil {
 		d.Logger = slog.New(slog.NewJSONHandler(os.Stderr, nil))
