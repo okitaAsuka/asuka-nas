@@ -16,9 +16,18 @@ import (
 
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintln(os.Stderr, "startup_failed")
+		fmt.Fprintln(os.Stderr, startupMessage(err))
 		os.Exit(1)
 	}
+}
+
+// 仅公开本轮容量拒绝码，不输出配置URL或原始驱动错误。
+func startupMessage(err error) string {
+	switch err.Error() {
+	case "subscription_limit", "subscription_history_limit":
+		return "startup_failed: " + err.Error()
+	}
+	return "startup_failed"
 }
 
 // 默认只校验；只有显式 -run 才访问部署配置中的服务。

@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"flag"
 	"github.com/okitaAsuka/asuka-nas/internal/nas"
 	"os"
@@ -72,5 +73,16 @@ func TestStartupLockBeforeMigration(t *testing.T) {
 				t.Fatalf("mutated under held lock: %d %d %s", schema, tables, value)
 			}
 		})
+	}
+}
+
+func TestStartupCapacityErrorIsSafe(t *testing.T) {
+	for _, code := range []string{"subscription_limit", "subscription_history_limit"} {
+		if got := startupMessage(errors.New(code)); got != "startup_failed: "+code {
+			t.Fatal(got)
+		}
+	}
+	if got := startupMessage(errors.New("http://127.0.0.1/rss?token=private")); got != "startup_failed" {
+		t.Fatal("raw startup error leaked")
 	}
 }

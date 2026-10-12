@@ -7,7 +7,8 @@ let csrf = "",
   busy = false,
   detailID = "",
   cursor = "",
-  eventCursor = 0;
+  eventCursor = 0,
+  subscriptionCursor = "";
 const names = {
   jobs: "任务与入库",
   subscriptions: "订阅管理",
@@ -32,6 +33,11 @@ const states = {
   not_connected: "未接入",
 };
 const errors = {
+  subscription_limit: "当前可用且启用的订阅已达 100 条；请先停用部分订阅。",
+  subscription_history_limit:
+    "订阅历史已达 10000 条；操作未保存，请先离线备份并安排历史治理，程序不会自动删除证据。",
+  profile_unavailable:
+    "来源档案已移除；可保留或停用历史订阅，恢复档案后才能启用。",
   operation_busy: "另一项操作仍在执行，请稍后重试。",
   stale_version: "状态已变化，请刷新后重试。",
   stale_plan: "计划已过期，未开始的计划需重新规划。",
@@ -211,6 +217,7 @@ function navigate(next) {
   tab = next;
   detailID = "";
   cursor = "";
+  subscriptionCursor = "";
   $("#heading").textContent = names[tab];
   document
     .querySelectorAll("[data-tab]")
@@ -474,7 +481,9 @@ async function jobView(id) {
   return root;
 }
 async function subscriptionsView() {
-  const data = await api("subscriptions"),
+  const data = await api(
+      "subscriptions?after=" + encodeURIComponent(subscriptionCursor),
+    ),
     root = el("div"),
     p = panel("订阅来源");
   p.append(
@@ -504,6 +513,11 @@ async function subscriptionsView() {
       button("编辑", () => {
         id.value = v.id;
         id.readOnly = true;
+        if (!Array.from(profile.options).some((o) => o.value === v.profile)) {
+          const old = el("option", v.profile + "（配置已移除，仅可停用）");
+          old.value = v.profile;
+          profile.append(old);
+        }
         profile.value = v.profile;
         name.value = v.name;
         enabled.value = String(v.enabled);
@@ -526,7 +540,30 @@ async function subscriptionsView() {
     ]);
   });
   if (!data.items.length) row(t.body, ["暂无订阅", "", "", "", ""]);
-  p.append(t.wrap);
+  p.append(
+    t.wrap,
+    el(
+      "p",
+      `共 ${data.total} 条历史订阅，本页 ${data.items.length} 条；配置缺失项保留历史、不抓取。`,
+      "muted",
+    ),
+  );
+  const pages = el("div", undefined, "actions");
+  if (subscriptionCursor)
+    pages.append(
+      button("返回订阅首页", () => {
+        subscriptionCursor = "";
+        load();
+      }),
+    );
+  if (data.next)
+    pages.append(
+      button("下一页订阅", () => {
+        subscriptionCursor = data.next;
+        load();
+      }),
+    );
+  p.append(pages);
   root.append(p);
   const form = panel("添加 / 编辑订阅");
   let version = 0;
@@ -582,10 +619,20 @@ async function subscriptionsView() {
   root.append(form);
   return root;
 }
+async function allSubscriptions() {
+  const items = [];
+  let after = "";
+  do {
+    const page = await api("subscriptions?after=" + encodeURIComponent(after));
+    items.push(...page.items);
+    after = page.next;
+  } while (after);
+  return { items };
+}
 async function rulesView() {
   const [rules, subscriptions, epoch, audit] = await Promise.all([
     api("rules"),
-    api("subscriptions"),
+    allSubscriptions(),
     api("epoch"),
     api("audit"),
   ]);
@@ -703,6 +750,7 @@ async function rulesView() {
     return r;
   }
   function fill(r) {
+    invalidatePreview();
     for (const [k, f] of Object.entries(fields)) f.value = r[k] ?? "";
     fields.start.value = r.episodes?.start ?? "";
     fields.end.value = r.episodes?.end ?? "";
@@ -719,36 +767,75 @@ async function rulesView() {
   form.append(samples);
   const preview = el("pre", undefined, "notice");
   preview.hidden = true;
-  let previewGeneration = 0;
-  form.addEventListener("input", () => {
+  let previewGeneration = 0,
+    acceptedPreview = null;
+  function previewRequest() {
+    return { rule: rule(), title: title.value, source: source.value };
+  }
+  // 程序化载入也必须失效；完整快照再校验，防止没有 input 事件的替换。
+  function invalidatePreview() {
     previewGeneration++;
+    acceptedPreview = null;
     preview.hidden = true;
-  });
+    preview.textContent = "";
+    saveDraft.dataset.unavailable = "true";
+    saveDraft.disabled = true;
+    message.textContent = "";
+  }
+  for (const event of ["input", "change", "reset"])
+    form.addEventListener(event, invalidatePreview);
+  const saveDraft = writeButton(
+    "保存草稿版本",
+    () => {
+      if (
+        !acceptedPreview ||
+        acceptedPreview.snapshot !== JSON.stringify(previewRequest())
+      ) {
+        invalidatePreview();
+        fail(new Error("请先预览当前规则及示例，再保存草稿。"));
+        return;
+      }
+      // 保存已审核快照，不能重新读取可能被程序替换的表单。
+      const reviewedRule = acceptedPreview.rule;
+      mutate(() => api("rules", reviewedRule));
+    },
+    true,
+  );
+  unavailable(saveDraft, "先预览当前规则与示例");
   const actions = el("div", undefined, "actions");
   actions.append(
     writeButton("预览命名", async () => {
       if (busy) return;
+      invalidatePreview();
       const g = generation,
-        p = ++previewGeneration;
+        p = previewGeneration,
+        request = previewRequest(),
+        snapshot = JSON.stringify(request);
+      const ownsResponse = () =>
+        g === generation &&
+        p === previewGeneration &&
+        snapshot === JSON.stringify(previewRequest());
       setBusy(true);
       try {
-        const v = await api("rule-preview", {
-          rule: rule(),
-          title: title.value,
-          source: source.value,
-        });
-        if (g === generation && p === previewGeneration) {
+        const v = await api("rule-preview", request);
+        if (ownsResponse()) {
+          acceptedPreview = {
+            snapshot,
+            rule: request.rule,
+            revision: request.rule.revision,
+          };
+          saveDraft.dataset.unavailable = "false";
           preview.hidden = false;
           preview.textContent =
             v.explanation + "\n" + JSON.stringify(v.decision, null, 2);
         }
       } catch (e) {
-        if (g === generation && p === previewGeneration) fail(e);
+        if (ownsResponse()) fail(e);
       } finally {
         setBusy(false);
       }
     }),
-    writeButton("保存草稿版本", () => mutate(() => api("rules", rule())), true),
+    saveDraft,
   );
   form.append(actions, preview);
   root.append(form);

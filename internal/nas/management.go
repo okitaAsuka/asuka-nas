@@ -107,7 +107,7 @@ func publicError(err error) string {
 		return ""
 	}
 	code := err.Error()
-	for _, v := range strings.Fields(`stale_version stale_plan plan_frozen invalid_job_state fingerprint_changed conflict cross_device permission_denied target_reserved unsafe_path unknown_source invalid_subscription subscription_limit subscription_exists subscription_not_found subscription_frozen profile_unavailable rule_invalid rule_invalid_range rule_not_normalized rule_revision_exists rule_not_found series_order_conflict rule_disabled rule_scope_ambiguous title_file_conflict season_conflict absolute_mapping_unresolved source_mapping_unresolved mapping_conflict rule_normalization_unresolved collection_incomplete collection_preview_only episode_unresolved special_episode unsupported_manifest awaiting_plan_confirmation legacy_evidence_unresolved source_disabled invalid_request`) {
+	for _, v := range strings.Fields(`stale_version stale_plan plan_frozen invalid_job_state fingerprint_changed conflict cross_device permission_denied target_reserved unsafe_path unknown_source invalid_subscription subscription_limit subscription_history_limit subscription_exists subscription_not_found subscription_frozen profile_unavailable rule_invalid rule_invalid_range rule_not_normalized rule_revision_exists rule_not_found series_order_conflict rule_disabled rule_scope_ambiguous title_file_conflict season_conflict absolute_mapping_unresolved source_mapping_unresolved mapping_conflict rule_normalization_unresolved collection_incomplete collection_preview_only episode_unresolved special_episode unsupported_manifest awaiting_plan_confirmation legacy_evidence_unresolved source_disabled invalid_request`) {
 		if code == v {
 			return v
 		}
@@ -201,7 +201,7 @@ func (m *Management) api(w http.ResponseWriter, r *http.Request) {
 			apiJSON(w, map[string]any{"mode": "local_single_user", "database": "ok", "gateway": "not_connected", "discord": "not_connected", "metadata": "not_connected", "learning": "not_connected", "model": "not_connected"})
 			return
 		case "subscriptions":
-			v, err := s.ManagedSubscriptions(ctx)
+			v, next, total, err := s.SubscriptionPage(ctx, r.URL.Query().Get("after"))
 			if err != nil {
 				apiError(w, 500, "store_failed")
 				return
@@ -215,7 +215,7 @@ func (m *Management) api(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
-			apiJSON(w, map[string]any{"items": v, "profiles": profiles})
+			apiJSON(w, map[string]any{"items": v, "profiles": profiles, "next": next, "total": total})
 			return
 		case "jobs":
 			after := r.URL.Query().Get("after")
@@ -324,17 +324,9 @@ func (m *Management) api(w http.ResponseWriter, r *http.Request) {
 	case "subscriptions":
 		var v ManagedSubscription
 		if err = decodeRequest(w, r, &v); err == nil {
-			valid := false
-			for _, p := range m.Daemon.Config.Subscriptions {
-				valid = valid || p.ID == v.Profile
-			}
-			if !valid {
-				err = errors.New("profile_unavailable")
-			} else {
-				m.Daemon.sourceMu.Lock()
-				err = s.PutSubscription(ctx, v)
-				m.Daemon.sourceMu.Unlock()
-			}
+			m.Daemon.sourceMu.Lock()
+			err = s.PutSubscription(ctx, v)
+			m.Daemon.sourceMu.Unlock()
 		}
 	case "source-retry":
 		var v struct {

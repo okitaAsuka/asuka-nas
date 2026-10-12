@@ -41,10 +41,18 @@ asuka-nas -serve -config /absolute/path/config.json
 
 `job-action.preview` 额外 source/target；confirm 额外 plan_version/digest。UI每次操作保存时禁用写按钮；导航和预览的响应都校验 generation，旧响应不能覆盖新页面。服务器版本校验提供第二层保护。
 
-管理状态是领域 schema5 之外的 additive 控制扩展 v1（control_meta、managed_subscriptions、control_events）；独立迁移不重写历史 Plan。升级前备份整个关闭后的 SQLite；不要降级到不理解持久订阅启停的旧二进制。缺失的来源档案显示不可用并跳过抓取，已有任务仍按原计划执行。
+管理状态是领域 schema5 之外的 additive 控制扩展 v2（control_meta、control_profiles、managed_subscriptions、control_events）；独立迁移不重写历史 Plan。升级前备份整个关闭后的 SQLite；不要降级到不理解持久订阅启停的旧二进制。缺失的来源档案显示不可用并跳过抓取，已有任务仍按原计划执行。
 
 ## 验证
 
 `make verify` 做 Go1.26.9 格式/vet/race/build。`make verify-ui` 需要 Python3.12、tests/requirements.txt 与 Chromium（CHROMIUM_PATH可指定；否则使用系统或Playwright浏览器），实际启动本地fake HTTP服务、临时SQLite/文件和Chromium。只验证本地产品链；不访问真实RSS/qB/Emby、不调用模型、不发送Discord。
 
 浏览器测试覆盖订阅添加→RSS→qB→指纹确认→实际硬链接→Emby发现→事件；规则启用后下一集自动；SQLite重开后的合集部分入库恢复；重复点击、XSS、导航晚到响应、错误恢复、手机宽度。截图仅临时内部检查，不随Library源码包交付。
+
+## 定向修复：订阅完整性与预览归属
+
+订阅 GET 现在支持 `?after=id`，每页100条，返回 `next` 与 `total`；界面可翻页，规则作用域选项遍历各页。调度使用独立的完整启用集合，与页面大小无关。当前配置档案保存在 control_profiles（只含ID），每次初始化事务性替换该集合；历史订阅、启停状态、resources 和 jobs 保留。档案移除后不抓取，仍能查看/停用历史项；恢复档案后按保存的启停状态处理。
+
+初始化、创建、启用和修改档案引用统一限制“当前档案中可用且启用”最多100条；历史/禁用项不占此容量。历史总量最多10000条。超限返回 subscription_limit 或 subscription_history_limit，整笔事务回滚（含档案集合、版本及审计），不静默截断、不自动删证据。控制schema1在同一事务升级2；旧版程序拒绝未知控制schema，不建议降级。
+
+规则预览绑定完整的规则、revision、RSS示例和源文件示例快照。手动输入/change/reset、程序化载入规则都使本地预览代数失效；导航由页面generation失效。响应除了代数还核对完整输入快照，无input事件的程序赋值也不能接受旧success/error。保存草稿只有在当前快照已有成功预览时可用，点击时再核对快照，并提交审核过的版本内容。启用仍是针对持久不可变revision的独立epoch校验；文件确认仍绑定后端plan version/digest，未改变执行授权。

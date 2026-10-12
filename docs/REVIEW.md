@@ -251,3 +251,10 @@ management_test覆盖Host/Origin/CSRF、SSRF来源引用限制、秘密不出站
 TestBrowserProductLoop + tests/browser_e2e.py使用实际Chromium与临时文件/HTTP，操作真实界面；fake控制只用于测试进程模拟外部下载和发现，不存在于产品。验证订阅管理→人工文件确认→已导入但未发现→发现事件；启用规则→下集自动；权限故障部分合集SQLite重开后UI重试。断言同inode、没有重下、PlanDigest不变、每job discovered一次。浏览器动态故障包括不可信HTML、双击、延迟旧响应和503恢复；截图经目视检查，仅存在/tmp，不上传Library。
 
 独立审查包v4提供的independent_v4_acceptance_test.go原样纳入，继续锁定分隔token、旧group/alias兼容和历史路径/digest不变、未知规范化版本阻塞。所有旧复现文件不改断言。
+
+
+## P2 原复现→修复→回归（审查包v5）
+
+输入HEAD005e342，先原样运行TestIndependentControlProfileChurn/TestIndependentBrowserPreviewOwnership/TestIndependentHTTPNegativeMatrix；原日志记录200/101/1和旧S02E03。随后只把两项“缺陷存在”预期转换为正确行为，并扩展边界：分页和调度独立、停用/缺失档案、初始化/API同容量、超限事务回滚；浏览器输入/载入/无事件赋值/reset/导航分别延迟真实API成功与错误响应、保存快照校验、分页与规则选择器跨页。API返回仍不含秘密URL。
+
+关键差异：daemon调用ScheduledSubscriptions；SubscriptionPage只供UI；InitControl在事务内维护control_profiles和控制schema2并检查容量；PutSubscription同容量检查。fill调用invalidatePreview，预览响应ownsResponse比较页面代数、表单代数、完整request快照，saveDraft再次核对并提交acceptedPreview.rule。既有后端计划digest、规则revision/epoch授权不变。

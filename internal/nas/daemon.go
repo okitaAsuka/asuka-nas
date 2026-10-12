@@ -27,7 +27,7 @@ func (d *Daemon) PollSources(ctx context.Context, now time.Time) error {
 	defer d.sourceMu.Unlock()
 	subs := d.Config.Subscriptions
 	if d.Managed {
-		managed, err := d.Engine.Store.ManagedSubscriptions(ctx)
+		managed, err := d.Engine.Store.ScheduledSubscriptions(ctx)
 		if err != nil {
 			return err
 		}
