@@ -24,7 +24,7 @@ jobs 独立保存 download/import/refresh/discovery/seed 状态。download compl
 不支持跨设备复制，EXDEV 转为 cross_device；源保持做种。已存在同 inode 的目标视为崩溃后的成功重放，其他目标为 conflict。
 预览记录 SHA256、size、mtime、device/inode 与 plan version；执行重新校验，过期方案必须重新预览。
 只匹配明确 SxxExx 的视频名，未知季度直接 needs_confirmation；用户可显式给出 season/episode，不能让模型自行批准。
-字幕旁车仅接受同目录、同 stem 的 .srt/.ass/.ssa/.vtt（可带安全语言后缀），与视频共同冻结到方案；逐文件链接，部分成功时可恢复，不回滚/删源。
+运行流程仅从 qB 完整文件清单关联字幕，旁车仅接受同目录、同 stem 的 .srt/.ass/.ssa/.vtt（可带安全语言后缀），与视频共同冻结到方案；逐文件链接，部分成功时可恢复，不回滚/删源。
 下载完成文件必须由 downloader 保持只读语义；指纹前后验证不提供对恶意并发写入内容的隔离。目录所有权须排除非受信任进程移动已打开父目录；不把本服务当多租户文件沙箱。
 
 ## 安全与运行
@@ -39,7 +39,7 @@ make verify = 格式、go vet、race tests、build。fixture 覆盖重复 RSS/�
 
 ## 上游依据与首版限制
 
-qB adapter 使用 [官方 5.x API](https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-%28qBittorrent-5.0%29) 的 add/info/files/stop；4.x 兼容后置。add 显式 savepath，文件查询校验 save_path 与配置一致；qB 容器和本服务必须使用相同下载路径。Emby 按 [官方浏览 API](https://dev.emby.media/doc/restapi/Browsing-the-Library.html) 查询并精确核对 Path，本服务和 Emby 也须同路径挂载。实际版本兼容性尚未在真实服务验收；当前 qB 只在启动时使用部署者环境变量登录，session 过期会记录失败并退避，需要重启重新登录，自动续期后置。
+qB adapter 使用 [官方 5.x API](https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-%28qBittorrent-5.0%29) 的 add/info/files/stop；4.x 兼容后置。add 显式 savepath，文件查询校验 save_path 与配置一致；qB 容器和本服务必须使用相同下载路径。Emby 按 [官方浏览 API](https://dev.emby.media/doc/restapi/Browsing-the-Library.html) 查询并精确核对 Path，本服务和 Emby 也须同路径挂载。实际版本兼容性尚未在真实服务验收；qB 使用部署者环境变量引用按需登录，401/403 最多重新登录一次并重放一次原请求，60 秒认证冷却；其它失败由持久 job 退避处理。
 
 只处理单视频 torrent 的最小闭环，多视频进入待确认且当前不支持整体批准，不能只导入其中一个后误标完成。字幕仅同 stem 的有限格式，扫描上限 4096 项。人工确认预先检查目标冲突，执行仍以独占 linkat 作最终仲裁。Linux 需要支持 openat2（5.6+）和 /proc/self/fd；不支持时 fail closed。
 
@@ -55,3 +55,6 @@ qB adapter 使用 [官方 5.x API](https://github.com/qbittorrent/qBittorrent/wi
 - RSS 与 job 各一条串行循环，慢来源 HTTP 不占用 job 循环。一个 job 的大文件哈希仍可能延长下一批轮询；已知 deadline 在每批最前处理，不提供硬实时保证。哈希支持 context 取消，但不可能中断内核永久挂起的磁盘 I/O。
 - flock 防止两个 daemon 执行相同数据库的外部副作用。SIGINT/SIGTERM 取消在途 HTTP 和用户态哈希，等待循环退出后释放 fd/SQLite/锁。外部效果不回滚，依靠可重试操作恢复。
 - 管理 HTTP、Discord、模型调用均未启用；人工 Propose/Confirm 目前为内部库 API，尚无操作端 UI/CLI。
+
+
+MVP 收尾：合集识别覆盖常见视频扩展名，但只自动入库唯一 mkv/mp4。整个清单必须通过路径/文件类型/字幕映射检查，否则持久 block_reason 并整体待确认；Propose 同样执行此门禁。共享目录其它任务的旁车不被吸收。qB save_path 严格等于本地 downloads，不猜容器路径映射；同 inode 根拒绝。未到期来源走只读快速路径，空闲 job 无写事务或上游请求。`needs_confirmation` 的 block_reason 与短期 ErrorCode 分离，停止做种故障不抹去阻塞原因。

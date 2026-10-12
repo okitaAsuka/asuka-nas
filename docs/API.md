@@ -2,7 +2,7 @@
 
 部署时用户提供静态 Bearer token，仅用于本服务；不由开发流程生成。仅可信内网，外部访问需要 TLS。agent 不得直连 SQLite。
 
-- GET /v1/jobs/{id}: version、download_state、import_state、refresh_state、discovery_state、seed_state、completed_at、stop_at、error_code。
+- GET /v1/jobs/{id}: version、download_state、import_state、refresh_state、discovery_state、seed_state、completed_at、stop_at、error_code、block_reason。
 - GET /v1/confirmations: 待确认 job 和 plan version。原始文件名/RSS 上下文只可在鉴权响应中返回，永不进事件/日志；UI 必须转义。
 - POST /v1/jobs/{id}/preview: 明确 title/season/episode（不猜季度），返回 version、plan digest、文件指纹、相对目标。
 - POST /v1/jobs/{id}/confirm: version + plan digest，绑定完整文件集合；过期 409、指纹变化 412、路径错误 422、冲突 409。确认只批准该方案，执行仍校验文件。

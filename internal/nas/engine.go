@@ -7,9 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"path"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 )
@@ -85,7 +83,7 @@ func (e *Engine) fail(ctx context.Context, j *Job, code string) error {
 func (e *Engine) stop(ctx context.Context, j *Job, now time.Time) error {
 	if j.CompletedAt > 0 && now.Unix() >= j.StopAt && j.Seed != "stopped" {
 		if err := e.QB.Stop(ctx, j.Hash); err != nil {
-			return e.fail(ctx, j, "seed_stop_failed")
+			return e.fail(ctx, j, qbFailureCode(err, "seed_stop_failed"))
 		}
 		j.Seed = "stopped"
 		return e.Store.Save(ctx, j, "seed_stopped")
@@ -123,7 +121,7 @@ func (e *Engine) tick(ctx context.Context, id string, now time.Time) error {
 			err = e.QB.Add(ctx, j.Magnet)
 		}
 		if err != nil {
-			return e.fail(ctx, &j, "download_add_failed")
+			return e.fail(ctx, &j, qbFailureCode(err, "download_add_failed"))
 		}
 		j.Download = "requested"
 		if err = e.Store.Save(ctx, &j, "download_submitted"); err != nil {
@@ -133,7 +131,7 @@ func (e *Engine) tick(ctx context.Context, id string, now time.Time) error {
 	if j.Download != "completed" {
 		status, err := e.QB.Status(ctx, j.Hash)
 		if err != nil {
-			return e.fail(ctx, &j, "download_status_failed")
+			return e.fail(ctx, &j, qbFailureCode(err, "download_status_failed"))
 		}
 		if !status.Complete {
 			return nil
@@ -156,25 +154,23 @@ func (e *Engine) tick(ctx context.Context, id string, now time.Time) error {
 	if j.Import == "pending" {
 		sources, err := e.QB.Files(ctx, j.Hash)
 		if err != nil {
-			return e.fail(ctx, &j, "download_files_failed")
+			return e.fail(ctx, &j, qbFailureCode(err, "download_files_failed"))
 		}
 		j.Sources = sources
 
-		var videos []string
-		for _, src := range j.Sources {
-			ext := strings.ToLower(path.Ext(src))
-			if ext == ".mkv" || ext == ".mp4" {
-				videos = append(videos, src)
-			}
-		}
-		if len(videos) != 1 {
+		video, reason := singleVideo(j.Sources)
+		if reason != "" {
 			j.Import = "needs_confirmation"
+			j.ErrorCode = reason
+			j.BlockReason = reason
 			return e.Store.Save(ctx, &j, "needs_confirmation")
 		}
-		p, err := e.Files.PreviewContext(ctx, videos[0], j.Version+1)
+		p, err := e.Files.PreviewManifest(ctx, video, j.Version+1, j.Sources)
 		if err != nil {
-			if err.Error() == "needs_confirmation" {
+			if err.Error() == "needs_confirmation" || err.Error() == "subtitle_mapping_ambiguous" {
 				j.Import = "needs_confirmation"
+				j.ErrorCode = err.Error()
+				j.BlockReason = err.Error()
 				return e.Store.Save(ctx, &j, "needs_confirmation")
 			}
 			return e.fail(ctx, &j, err.Error())
@@ -258,27 +254,19 @@ func (e *Engine) Propose(ctx context.Context, id, source, target string) (*Plan,
 	if j.Download != "completed" || j.Import == "imported" {
 		return nil, errors.New("invalid_job_state")
 	}
-	found := false
-	videos := 0
-	for _, s := range j.Sources {
-		if ext := strings.ToLower(path.Ext(s)); ext == ".mkv" || ext == ".mp4" {
-			videos++
-		}
-		if s == source {
-			found = true
-		}
+	video, reason := singleVideo(j.Sources)
+	if reason != "" {
+		return nil, errors.New(reason)
 	}
-	if !found {
+	if video != source {
 		return nil, errors.New("unknown_source")
 	}
-	if videos != 1 || (strings.ToLower(path.Ext(source)) != ".mkv" && strings.ToLower(path.Ext(source)) != ".mp4") {
-		return nil, errors.New("unsupported_file_set")
-	}
-	p, err := e.Files.ProposedPlan(source, target, j.Version+1)
+	p, err := e.Files.ProposedManifest(ctx, source, target, j.Version+1, j.Sources)
 	if err != nil {
 		return nil, err
 	}
 	j.Plan = p
+	j.BlockReason = "awaiting_plan_confirmation"
 	j.Import = "needs_confirmation"
 	if err = e.Store.Save(ctx, &j, "plan_ready"); err != nil {
 		return nil, err
@@ -312,6 +300,8 @@ func (e *Engine) Confirm(ctx context.Context, id string, version int, digest str
 		}
 	}
 	j.Plan.Approved = true
+	j.BlockReason = ""
+	j.ErrorCode = ""
 	j.Import = "planned"
 	return e.Store.Save(ctx, &j, "plan_confirmed")
 }

@@ -6,7 +6,8 @@
 - `945cfa4`：设计、API 契约、Go 1.26.9、配置、SQLite、测试和 Actions。
 - `c1c54c8`：fake HTTP/临时文件最小纵向闭环。
 - `1addb55`：逐段复核与故障注入，修复持久化、取消、停止优先顺序、参数边界。
-- 当前开发分支 `codex/nas-foundation-20261012`：RSS/.torrent HTTP 与持久轮询 daemon 阶段。
+- `fc5d788`：RSS/.torrent HTTP 与持久轮询 daemon。
+- 当前开发分支 `codex/nas-foundation-20261012`：安全单集 MVP 收尾，完成有界认证恢复、完整文件清单阻塞、公共挂载/空闲检查。
 
 ## 已实现
 
@@ -16,7 +17,7 @@ CLI 默认仅检查配置，显式 -run 启动 source/job 两条循环。来源�
 
 ## 最新验证
 
-真实 Go 1.26.9 linux/amd64：`make verify` 的 gofmt、vet、33 个顶层测试（另含子测试/fuzz seeds）、race、build 全通过。
+真实 Go 1.26.9 linux/amd64：`make verify` 的 gofmt、vet、40 个顶层测试（另含子测试/fuzz seeds）、race、build 全通过。
 配置样例检查和无 CGO 构建通过；git diff --check 通过。
 Bencode fuzz 两轮各 5 秒：52,364 与 56,171 次执行，无崩溃（最后一轮针对已加别名路径检查的解析器）。覆盖率仅作为辅助，不能推断生产安全；中途领域包覆盖率 77.2%，CLI 的 subprocess 行为覆盖不会计入父进程覆盖数字。
 
@@ -27,7 +28,7 @@ Bencode fuzz 两轮各 5 秒：52,364 与 56,171 次执行，无崩溃（最后�
 ## 明确限制
 
 - Mikan 格式由本地 RSS/enclosure fixtures 验证，尚无真实站点/具体部署兼容验收。
-- qB session 仅启动时登录，过期后记录失败/退避，重启可重新登录；自动续期、4.x 兼容后置。
+- qB 401/403 触发最多一次重新登录和一次原请求重放；全部认证尝试冷却 60 秒，500 等非认证错误不登录。凭据每次从配置引用取，不保存在客户端或日志。4.x 兼容后置。
 - Emby 精确 Path 查询尚未做真实版本/分页验收；HTTP 200 从不等于已发现。
 - 多视频 torrent 会解析/下载但不自动部分入库，进入待确认；整体多视频方案未实现。命名只覆盖严格 SxxExx，v2/webseed/复杂字幕不支持。
 - Propose/Confirm 和事件游标为内部库 API，HTTP 管理接口/鉴权/UI/Discord 仍仅契约或未实现。
@@ -39,3 +40,15 @@ Bencode fuzz 两轮各 5 秒：52,364 与 56,171 次执行，无崩溃（最后�
 
 现有身份 okitaAsuka；先前目标查询 404，createRepository 返回 Resource not accessible by integration，开发分支推送 Repository not found，Actions 查询 HTTP 404。用户已获知并准备手动建仓/授权；本阶段未再重试建仓、推送或扩权，没有 token 创建。
 无远端提交/CI 成功链接。独立本地仓库 `/workspace/asuka-nas` 和 `/workspace/asuka-nas-delivery.bundle` 保存所有阶段历史；main 未合并。asuka-agent 保持 clean，未修改。文件树、测试名、变更边界见 REVIEW.md。
+
+
+## MVP 收尾（暂停扩功能）
+
+认证：401/403、登录响应 Fails.、重新登录后仍拒绝、60 秒冷却分别可诊断；multipart 重放保留完全相同的字节。只有启动配置中的环境变量引用，未创建或回显凭据。
+单集：下载器完整清单里视频数量必须恰好 1（识别更多视频扩展名防漏数），且自动入库只支持 mkv/mp4。合集/未知文件/未知季集/字幕映射不明整体 needs_confirmation，独立 block_reason 不会被做种认证错误覆盖；不选第一集。人工单文件方案也不能绕过合集和字幕约束。
+字幕：运行流程只处理下载器清单中同目录、同 stem 且支持的旁车，不再扫描共享下载目录并混入其它 job 的文件。没有清单的独立预览保守阻塞不明字幕。
+公共挂载：严格要求 qB save_path 等于 downloads，根不得同 inode，下载与媒体必须同设备；文件必须在本机 downloads 下真实存在且通过 fd 安全校验。这不能证明两个容器挂载的是相同宿主目录，实际 bind mount 验收仍是部署门槛。
+空闲：未到期 subscription 只读快速返回；已完成和待确认 job 不预约/写事件/请求。测试比较 SQLite total_changes、事件游标和全部 HTTP 请求计数。活动下载和待发现媒体仍按配置间隔轮询。
+测试新增：QBSessionRecoveryAndReplayLimit、QBAuthFailuresDoNotLoopOrLeak、QBMultipartAuthReplayPreservesExactBody、WholeManifestBlocksCollectionsAndAmbiguousSubtitles、ManifestExcludesOtherJobsSidecars、IdleJobsAndSubscriptionsDoNotWriteOrRequest、DownloadRootMustMatchAndFilesMustExistLocally。
+
+本轮到此停止扩功能。Library 备份仅从 main+开发分支生成 bundle，不包含 git config、未跟踪部署配置、缓存、数据库或工具链；上传结果另在交付回复中记录。

@@ -19,3 +19,5 @@ go run ./cmd/asuka-nas -config config.example.json
 部署者已有凭据通过 `ASUKA_NAS_QB_USERNAME`、`ASUKA_NAS_QB_PASSWORD`、`ASUKA_NAS_EMBY_TOKEN` 提供；本项目不生成凭据。qB 5.x、下载器和本服务须相同下载挂载路径，Emby 和本服务须相同媒体挂载路径。
 
 如 `go` 不是实际工具链，设置 `GO_BINARY=/absolute/path/to/go1.26.9/bin/go` 后运行 `scripts/dev.sh`。Dockerfile 的默认命令仍仅做配置检查；镜像尚未构建/部署验收。
+
+安全单集 MVP：合集/未知季集/字幕映射不明整体待确认，不自动挑首个视频。qB 会话失效后仅对 401/403 有界重新登录（每次最多一次、60 秒冷却）；凭据从上述部署环境变量引用读取，不在客户端保存。完成/待确认任务和未到期订阅无持续写入或上游请求。

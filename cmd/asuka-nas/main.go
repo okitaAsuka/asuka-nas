@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -58,12 +59,13 @@ func run() error {
 	qb := &nas.QB{HTTPBoundary: nas.NewHTTPBoundary(cfg.QBURL, ""), Downloads: cfg.Downloads}
 	qb.SetTimeout(time.Duration(cfg.RequestTimeoutSeconds) * time.Second)
 	// 只消费部署者已有凭据，不生成、写盘或回显。
-	user, password := os.Getenv("ASUKA_NAS_QB_USERNAME"), os.Getenv("ASUKA_NAS_QB_PASSWORD")
-	if user != "" || password != "" {
-		if err = qb.Login(ctx, user, password); err != nil {
-			return err
+	qb.SetCredentialSource(func() (string, string, error) {
+		user, password := os.Getenv("ASUKA_NAS_QB_USERNAME"), os.Getenv("ASUKA_NAS_QB_PASSWORD")
+		if user == "" || password == "" {
+			return "", "", errors.New("credentials_unavailable")
 		}
-	}
+		return user, password, nil
+	})
 	emby := &nas.Emby{HTTPBoundary: nas.NewHTTPBoundary(cfg.EmbyURL, os.Getenv("ASUKA_NAS_EMBY_TOKEN"))}
 	emby.SetTimeout(time.Duration(cfg.RequestTimeoutSeconds) * time.Second)
 	engine := &nas.Engine{Store: store, Files: files, QB: qb, Emby: emby, Library: cfg.Library}

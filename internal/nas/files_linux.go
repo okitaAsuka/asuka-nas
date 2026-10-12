@@ -41,6 +41,11 @@ func OpenFiles(source, target string) (*Files, error) {
 		unix.Close(d)
 		return nil, errors.New("root_stat_failed")
 	}
+	if ss.Dev == ds.Dev && ss.Ino == ds.Ino {
+		unix.Close(s)
+		unix.Close(d)
+		return nil, errors.New("overlapping_roots")
+	}
 	if ss.Dev != ds.Dev {
 		unix.Close(s)
 		unix.Close(d)
@@ -226,6 +231,14 @@ func (f *Files) Preview(source string, version int) (*Plan, error) {
 
 // PreviewContext 命名和指纹计算共用取消信号。
 func (f *Files) PreviewContext(ctx context.Context, source string, version int) (*Plan, error) {
+	return f.preview(ctx, source, version, nil)
+}
+
+// PreviewManifest 仅从下载器完整清单关联旁车，不扫描共享下载目录内的其它任务。
+func (f *Files) PreviewManifest(ctx context.Context, source string, version int, manifest []string) (*Plan, error) {
+	return f.preview(ctx, source, version, manifest)
+}
+func (f *Files) preview(ctx context.Context, source string, version int, manifest []string) (*Plan, error) {
 	base := path.Base(source)
 	ext := strings.ToLower(path.Ext(base))
 	if ext != ".mkv" && ext != ".mp4" {
@@ -240,7 +253,7 @@ func (f *Files) PreviewContext(ctx context.Context, source string, version int) 
 		return nil, errors.New("needs_confirmation")
 	}
 	target := fmt.Sprintf("%s/Season %s/%s - S%sE%s%s", title, m[2], title, m[2], m[3], ext)
-	return f.plan(ctx, source, target, version)
+	return f.plan(ctx, source, target, version, manifest)
 }
 
 // ProposedPlan 供人工明确命名；仍需 Confirm 绑定版本与完整指纹。
@@ -248,10 +261,18 @@ func (f *Files) ProposedPlan(source, target string, version int) (*Plan, error) 
 	if strings.ToLower(path.Ext(source)) != strings.ToLower(path.Ext(target)) {
 		return nil, errors.New("invalid_target_extension")
 	}
-	return f.plan(context.Background(), source, target, version)
+	return f.plan(context.Background(), source, target, version, nil)
 }
 
-func (f *Files) plan(ctx context.Context, source, target string, version int) (*Plan, error) {
+// ProposedManifest 人工命名同样不能跳过合集/字幕清单约束。
+func (f *Files) ProposedManifest(ctx context.Context, source, target string, version int, manifest []string) (*Plan, error) {
+	if strings.ToLower(path.Ext(source)) != strings.ToLower(path.Ext(target)) {
+		return nil, errors.New("invalid_target_extension")
+	}
+	return f.plan(ctx, source, target, version, manifest)
+}
+
+func (f *Files) plan(ctx context.Context, source, target string, version int, manifest []string) (*Plan, error) {
 	if !local(source) || !local(target) {
 		return nil, errors.New("unsafe_path")
 	}
@@ -260,6 +281,34 @@ func (f *Files) plan(ctx context.Context, source, target string, version int) (*
 		return nil, e
 	}
 	p := &Plan{Version: version, Files: []PlannedFile{{source, target, fp}}}
+	if manifest != nil {
+		video, reason := singleVideo(manifest)
+		if reason != "" {
+			return nil, errors.New(reason)
+		}
+		if video != source {
+			return nil, errors.New("unknown_source")
+		}
+		stem := strings.TrimSuffix(path.Base(source), path.Ext(source))
+		targetStem := strings.TrimSuffix(target, path.Ext(target))
+		for _, src := range manifest {
+			if src == source {
+				continue
+			}
+			name := path.Base(src)
+			suffix := strings.TrimPrefix(name, stem)
+			if !strings.HasPrefix(name, stem) || !subtitleSuffix.MatchString(suffix) {
+				continue
+			}
+			fp, err := f.FingerprintContext(ctx, src)
+			if err != nil {
+				return nil, err
+			}
+			p.Files = append(p.Files, PlannedFile{src, targetStem + suffix, fp})
+		}
+		return f.validatePlan(p)
+	}
+
 	dir := path.Dir(source)
 	var fd int
 	if dir == "." {
@@ -284,10 +333,18 @@ func (f *Files) plan(ctx context.Context, source, target string, version int) (*
 	for _, entry := range entries {
 		name := entry.Name()
 		if !strings.HasPrefix(name, stem) {
+			switch strings.ToLower(path.Ext(name)) {
+			case ".srt", ".ass", ".ssa", ".vtt", ".sub", ".idx", ".sup":
+				return nil, errors.New("subtitle_mapping_ambiguous")
+			}
 			continue
 		}
 		suffix := strings.TrimPrefix(name, stem)
 		if !subtitleSuffix.MatchString(suffix) {
+			switch strings.ToLower(path.Ext(name)) {
+			case ".srt", ".ass", ".ssa", ".vtt", ".sub", ".idx", ".sup":
+				return nil, errors.New("subtitle_mapping_ambiguous")
+			}
 			continue
 		}
 		src := path.Join(dir, name)
@@ -298,6 +355,10 @@ func (f *Files) plan(ctx context.Context, source, target string, version int) (*
 		p.Files = append(p.Files, PlannedFile{src, targetStem + suffix, fp})
 	}
 
+	return f.validatePlan(p)
+}
+
+func (f *Files) validatePlan(p *Plan) (*Plan, error) {
 	sort.Slice(p.Files[1:], func(i, j int) bool { return p.Files[i+1].Source < p.Files[j+1].Source })
 	for _, file := range p.Files {
 		if err := f.CheckTarget(file); err != nil {

@@ -16,6 +16,7 @@ import (
 
 // Job 的各状态正交，停止做种不能受导入失败影响。
 type Job struct {
+	BlockReason string   `json:"block_reason,omitempty"`
 	HasTorrent  bool     `json:"has_torrent,omitempty"`
 	Attempts    int      `json:"attempts,omitempty"`
 	NextAttempt int64    `json:"next_attempt,omitempty"`

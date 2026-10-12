@@ -137,3 +137,54 @@ internal/nas/source_test.go
 internal/nas/store.go
 internal/nas/torrent.go
 scripts/dev.sh
+
+## 单集 MVP 收尾复核
+
+- clients.go：新增只携带 HTTP 状态的错误类型；QB.request 对401/403才触发凭据引用→一次Login→一次重放，authRetryAt冷却60秒；非认证500不登录；multipart request body有界保留供精确重放。qbFailureCode把401、403、错误凭据、缺失凭据、冷却分别映射为固定码。
+- selection.go：singleVideo检查完整清单，广泛识别视频以避免漏数，只支持唯一mkv/mp4；未知/多视频/不明字幕整体阻塞。engine.Propose也调用同一门禁。持久block_reason与临时error_code分离。
+- files_linux.go：运行流程用PreviewManifest/ProposedManifest；旁车必须来自该torrent清单，不吸收共享下载目录其他任务的字幕。根同inode拒绝，原有同设备、openat2/linkat/fsync/指纹契约保持。
+- schedule.go：未到期订阅读取next_poll后直接返回，不开写事务；终态/待确认job继续只读。空闲测试覆盖total_changes、事件增量、全部HTTP请求计数。
+- 部署门槛未消失：必须核对容器真实bind mounts、Linux openat2/proc、文件权限/静态性、qB5/Emby版本、Docker与真实CI。没有管理接口和多集完整方案，不适合直接投入无人值守生产。
+
+最新完整测试清单（40个Test + 1个Fuzz入口）：
+internal/nas/integration_test.go:func TestVerticalLoopReplayAndIndependentSeeding(t *testing.T) {
+internal/nas/integration_test.go:func TestUnknownSeasonStopsImmediatelyAndConfirmation(t *testing.T) {
+internal/nas/integration_test.go:func TestRefreshRetryAndCrashAfterLink(t *testing.T) {
+internal/nas/integration_test.go:func TestFilesFailureDoesNotPreventStop(t *testing.T) {
+internal/nas/integration_test.go:func TestDownloadPathMismatchStillStops(t *testing.T) {
+cmd/asuka-nas/main_test.go:func TestDaemonSIGTERM(t *testing.T) {
+internal/nas/config_test.go:func TestConfigSafety(t *testing.T) {
+internal/nas/config_test.go:func TestStoreAtomicReplay(t *testing.T) {
+internal/nas/config_test.go:func TestRejectFutureSchema(t *testing.T) {
+internal/nas/config_test.go:func TestSchemaMigrationAndReopenedConnectionPragmas(t *testing.T) {
+internal/nas/auth_test.go:func TestQBSessionRecoveryAndReplayLimit(t *testing.T) {
+internal/nas/auth_test.go:func TestQBAuthFailuresDoNotLoopOrLeak(t *testing.T) {
+internal/nas/auth_test.go:func TestQBMultipartAuthReplayPreservesExactBody(t *testing.T) {
+internal/nas/recovery_test.go:func TestExternalEffectThenTransactionFailure(t *testing.T) {
+internal/nas/recovery_test.go:func TestClockRollbackRestartAndNoSourceDeletion(t *testing.T) {
+internal/nas/recovery_test.go:func TestDirectorySwapCannotFollowSymlink(t *testing.T) {
+internal/nas/recovery_test.go:func TestCancelledImportHasNoFilesystemEffect(t *testing.T) {
+internal/nas/recovery_test.go:func TestConfigSizeLimitIncludesTrailingWhitespace(t *testing.T) {
+internal/nas/clients_test.go:func TestHTTPBoundaryRejectsRedirectAndRedacts(t *testing.T) {
+internal/nas/clients_test.go:func TestRSSUntrustedAndUnsupported(t *testing.T) {
+internal/nas/clients_test.go:func TestQBLoginAndSemanticFailure(t *testing.T) {
+internal/nas/clients_test.go:func TestDownloaderRejectsBroadOrInjectedCommands(t *testing.T) {
+internal/nas/source_test.go:func TestTorrentExactInfoHashAndRejectMalformed(t *testing.T) {
+internal/nas/source_test.go:func TestRSSHTTPToTorrentUploadAndRestart(t *testing.T) {
+internal/nas/source_test.go:func TestSourceFailureBackoffPersists(t *testing.T) {
+internal/nas/source_test.go:func TestEnclosureOriginRedirectAndBodyLimits(t *testing.T) {
+internal/nas/source_test.go:func TestDaemonCancellationAndInstanceLock(t *testing.T) {
+internal/nas/source_test.go:func TestJobRetrySurvivesRestartWithoutDelayingStop(t *testing.T) {
+internal/nas/source_test.go:func FuzzTorrentHashDoesNotPanic(f *testing.F) {
+internal/nas/source_test.go:func TestDaemonFailureLogsOnlySafeCodes(t *testing.T) {
+internal/nas/source_test.go:func TestSourceReservationSurvivesCrashBeforeRequest(t *testing.T) {
+internal/nas/source_test.go:func TestMultiFileTorrentRejectsPathAndAliasEscapes(t *testing.T) {
+internal/nas/source_test.go:func TestPersistedTorrentCorruptionCannotDispatchDifferentHash(t *testing.T) {
+internal/nas/control_test.go:func TestWholeManifestBlocksCollectionsAndAmbiguousSubtitles(t *testing.T) {
+internal/nas/control_test.go:func TestManifestExcludesOtherJobsSidecars(t *testing.T) {
+internal/nas/control_test.go:func TestIdleJobsAndSubscriptionsDoNotWriteOrRequest(t *testing.T) {
+internal/nas/control_test.go:func TestDownloadRootMustMatchAndFilesMustExistLocally(t *testing.T) {
+internal/nas/files_test.go:func TestFileSafetyAndIdempotence(t *testing.T) {
+internal/nas/files_test.go:func TestStaleConfirmationAndSymlinkSidecar(t *testing.T) {
+internal/nas/files_test.go:func TestConflictDoesNotBlockSeedDeadline(t *testing.T) {
+internal/nas/files_test.go:func TestConfirmationRechecksConflict(t *testing.T) {

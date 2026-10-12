@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -60,7 +61,7 @@ func (h *HTTPBoundary) request(ctx context.Context, method, endpoint string, bod
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, errors.New("upstream_rejected")
+		return nil, &HTTPStatusError{Status: resp.StatusCode}
 	}
 	b, e := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024+1))
 	if e != nil || len(b) > 2*1024*1024 {
@@ -88,17 +89,20 @@ type Downloader interface {
 // QB 对应 qBittorrent 5.x API；4.x pause 兼容尚未实现。
 type QB struct {
 	*HTTPBoundary
-	Downloads string
+	Downloads   string
+	credentials func() (string, string, error)
+	authMu      sync.Mutex
+	authRetryAt time.Time
 }
 
 // Login 使用用户部署时提供的账号，不保存/输出密码。
 func (q *QB) Login(ctx context.Context, user, password string) error {
-	b, e := q.call(ctx, "POST", "/api/v2/auth/login", url.Values{"username": {user}, "password": {password}})
+	b, e := q.HTTPBoundary.call(ctx, "POST", "/api/v2/auth/login", url.Values{"username": {user}, "password": {password}})
 	if e != nil {
 		return e
 	}
 	if string(b) != "Ok." {
-		return errors.New("qb_login_failed")
+		return errQBCredentials
 	}
 	return nil
 }
@@ -326,3 +330,86 @@ func (q *QB) AddTorrent(ctx context.Context, payload []byte) error {
 
 // SetTimeout 在启动阶段设置有界请求超时，不在请求期间修改。
 func (h *HTTPBoundary) SetTimeout(timeout time.Duration) { h.client.Timeout = timeout }
+
+// HTTPStatusError 只保留状态码，不包含 URL、响应正文或认证字段。
+type HTTPStatusError struct{ Status int }
+
+func (e *HTTPStatusError) Error() string {
+	switch e.Status {
+	case 401:
+		return "upstream_unauthorized"
+	case 403:
+		return "upstream_forbidden"
+	default:
+		return "upstream_rejected"
+	}
+}
+
+var errQBCredentials = errors.New("qb_invalid_credentials")
+var errQBCredentialSource = errors.New("qb_credentials_unavailable")
+var errQBAuthCooldown = errors.New("qb_auth_cooldown")
+
+// SetCredentialSource 仅保留部署凭据引用；不在客户端保存用户名或密码。
+func (q *QB) SetCredentialSource(source func() (string, string, error)) { q.credentials = source }
+
+func (q *QB) call(ctx context.Context, method, endpoint string, form url.Values) ([]byte, error) {
+	var body io.Reader
+	contentType := ""
+	if form != nil {
+		body = strings.NewReader(form.Encode())
+		contentType = "application/x-www-form-urlencoded"
+	}
+	return q.request(ctx, method, endpoint, body, contentType)
+}
+
+// request 仅对 401/403 登录一次、重放一次；60 秒冷却覆盖成功/失败，禁止认证循环。
+func (q *QB) request(ctx context.Context, method, endpoint string, body io.Reader, contentType string) ([]byte, error) {
+	var payload []byte
+	if body != nil {
+		var err error
+		payload, err = io.ReadAll(io.LimitReader(body, 16*1024*1024+1))
+		if err != nil || len(payload) > 16*1024*1024 {
+			return nil, errors.New("qb_request_invalid")
+		}
+	}
+	q.authMu.Lock()
+	defer q.authMu.Unlock()
+	send := func() ([]byte, error) {
+		return q.HTTPBoundary.request(ctx, method, endpoint, bytes.NewReader(payload), contentType)
+	}
+	b, err := send()
+	var status *HTTPStatusError
+	if !errors.As(err, &status) || (status.Status != 401 && status.Status != 403) || q.credentials == nil {
+		return b, err
+	}
+	if time.Now().Before(q.authRetryAt) {
+		return nil, errQBAuthCooldown
+	}
+	q.authRetryAt = time.Now().Add(time.Minute)
+	user, password, sourceErr := q.credentials()
+	if sourceErr != nil || user == "" || password == "" {
+		return nil, errQBCredentialSource
+	}
+	if err = q.Login(ctx, user, password); err != nil {
+		return nil, err
+	}
+	return send()
+}
+
+func qbFailureCode(err error, fallback string) string {
+	var status *HTTPStatusError
+	if errors.As(err, &status) {
+		switch status.Status {
+		case 401:
+			return "qb_unauthorized"
+		case 403:
+			return "qb_forbidden"
+		}
+	}
+	for _, known := range []error{errQBCredentials, errQBCredentialSource, errQBAuthCooldown} {
+		if errors.Is(err, known) {
+			return known.Error()
+		}
+	}
+	return fallback
+}

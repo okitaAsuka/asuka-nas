@@ -16,6 +16,16 @@ type SourceState struct {
 
 // ClaimSource 在发请求前预约下次时间；崩溃不能绕过轮询间隔。
 func (s *Store) ClaimSource(ctx context.Context, id string, now int64, interval int) (bool, error) {
+	// 未到期只读，空闲 tick 不反复开启写事务；事务内仍以条件 UPDATE 仲裁。
+	var next int64
+	err := s.db.QueryRowContext(ctx, "SELECT next_poll FROM source_state WHERE id=?", id).Scan(&next)
+	if err == nil && next > now {
+		return false, nil
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, err
+	}
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, err
@@ -159,7 +169,9 @@ func (e *Engine) RetryTick(ctx context.Context, now time.Time, base int) error {
 			failures = append(failures, runErr)
 		} else if j.Attempts > 0 {
 			j.Attempts = 0
-			j.ErrorCode = ""
+			if j.Import != "needs_confirmation" {
+				j.ErrorCode = ""
+			}
 			if err = e.Store.Save(ctx, &j, "retry_cleared"); err != nil {
 				return err
 			}

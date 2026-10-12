@@ -19,6 +19,8 @@ const fixtureHash = "0123456789abcdef0123456789abcdef01234567"
 
 // fixture 所有 HTTP 只在回环 fake 服务，媒体文件只在 t.TempDir。
 type fixture struct {
+	requests                     int
+	manifest                     []string
 	hash                         string
 	multipartAdds                int
 	wrongRoot                    bool
@@ -104,6 +106,7 @@ func (f *fixture) tick(at int64) {
 func (f *fixture) handle(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.requests++
 	switch r.URL.Path {
 	case "/api/v2/torrents/add":
 		if r.Method != "POST" {
@@ -149,7 +152,15 @@ func (f *fixture) handle(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(503)
 			return
 		}
-		json.NewEncoder(w).Encode([]any{map[string]any{"name": f.name, "progress": 1}})
+		names := f.manifest
+		if names == nil {
+			names = []string{f.name}
+		}
+		var list []any
+		for _, name := range names {
+			list = append(list, map[string]any{"name": name, "progress": 1})
+		}
+		json.NewEncoder(w).Encode(list)
 	case "/api/v2/torrents/stop":
 		r.ParseForm()
 		if r.Method != "POST" || r.Form.Get("hashes") != f.hash {
@@ -184,6 +195,7 @@ func (f *fixture) handle(w http.ResponseWriter, r *http.Request) {
 
 func TestVerticalLoopReplayAndIndependentSeeding(t *testing.T) {
 	f := newFixture(t, "Show.S02E03.mkv", 7)
+	f.manifest = []string{f.name, "Show.S02E03.zh-Hans.ass"}
 	if e := os.WriteFile(filepath.Join(f.downloads, "Show.S02E03.zh-Hans.ass"), []byte("subtitle"), 0600); e != nil {
 		t.Fatal(e)
 	}
