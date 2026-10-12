@@ -204,3 +204,13 @@ internal/nas/files_test.go:func TestConfirmationRechecksConflict(t *testing.T) {
 最终验证：真实 Go 1.26.9，make verify（gofmt、vet、53 个顶层测试及子测试、race、build）通过；git diff --check 通过。所有网络仅 httptest，所有媒体仅临时目录。本轮未构建/运行 Docker、未尝试 GitHub、未部署。新增 golang.org/x/text 只用于 Unicode NFKC。
 
 剩余边界：N1 没有合集执行、绝对集数自动执行映射、冻结冲突解除或历史迁移、元数据 provider、模型、Discord/gateway 发信；命名规则不是任意 DSL。任意规则启停使所有未执行预览保守失效。此自查和模拟测试不等于第三方审计或真实部署验证。
+
+## N3/N4 与独立发现修复（2026-10-12）
+
+外部独立审查针对 dcc97ca，证据来自 Library libfile_4686f4abe4f881919c9c3feeddb7c84e。其 independent_review_test.go 原样保留，cmp 验证未改断言。先在当前代码运行：F1 两个格式、F2、F4、F5 仍失败；F3 因本轮绝对证据门禁已通过。完成修复后全部独立用例通过，另覆盖小数/SxxExx 小数/连接编号、常规扩展名与分辨率、模糊已知 scope、历史规则升级后合集恢复及新 GUID、人工语义/任意目标、真实新矛盾和旧假冲突解除。
+
+本轮另做完整 SQL/状态机人工自查：全包预约与历史/事件同事务；部分预约冲突回滚；intent 提交在硬链接之前；linked 提交在硬链接之后；所有 file records linked 才 imported；所有视频发现才 discovered。历史计划、规则和文件目标不因恢复切换到未来规则。完整迁移回滚检查确认重复历史目标不会更新 schema 版本或遗失 jobs。详见 COLLECTIONS.md。
+
+新增高价值故障：第5个硬链接成功、file_linked 事件插入失败，数据库保持 intended，重启同 inode 恢复；第7个文件权限错误，中间成功链接保留；file_intent 提交失败时对应文件完全未链接；最终 discovered 事务失败保留11视频发现进度，重启只提交一次最终事件；部分合集失败到7天截止仍停止做种。权限故障由文件边界注入，未宣称真实宿主权限测试。跨任务目标预约测试故意先插入一个不冲突目标再遇冲突，验证整事务回滚。
+
+最终：真实 Go 1.26.9 linux/amd64，make verify 的 gofmt/vet/78 个顶层测试及子测试/race/build 全通过；git diff --check 通过。FuzzTitleEvidenceBounds 5秒、2 workers、27,789 次执行，无崩溃。原独立审查不覆盖本次新增实现，尚无第二轮外部审查，也没有真实服务、NAS、断电或 Docker 运行验收。没有新依赖、模型、Discord、GitHub 重试、合并或部署；asuka-agent clean。

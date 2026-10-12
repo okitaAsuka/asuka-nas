@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -173,11 +174,10 @@ func (s *Store) SetRule(ctx context.Context, id string, revision int, enabled bo
 
 // ResolveNaming 多来源必须得到相同决定；命中停用规则或矛盾不能退回文件名猜测。
 func (s *Store) ResolveNaming(ctx context.Context, id, source string) (*NamingDecision, []string, error) {
+	return s.resolveNaming(ctx, id, source, nil)
+}
+func (s *Store) resolveNaming(ctx context.Context, id, source string, frozen []string) (*NamingDecision, []string, error) {
 	contexts, e := s.Contexts(ctx, id)
-	if e != nil {
-		return nil, nil, e
-	}
-	rows, e := s.db.QueryContext(ctx, "SELECT r.body,a.enabled FROM naming_rules r JOIN naming_active a ON r.id=a.id AND r.revision=a.revision ORDER BY r.id")
 	if e != nil {
 		return nil, nil, e
 	}
@@ -186,24 +186,49 @@ func (s *Store) ResolveNaming(ctx context.Context, id, source string) (*NamingDe
 		on int
 	}
 	var rules []active
-	for rows.Next() {
-		var b string
-		var a active
-		if e = rows.Scan(&b, &a.on); e != nil {
-			rows.Close()
-			return nil, nil, e
+	if frozen != nil {
+		seen := map[string]bool{}
+		for _, ref := range frozen {
+			if seen[ref] {
+				continue
+			}
+			seen[ref] = true
+			id, rev, ok := strings.Cut(ref, "@")
+			revision, err := strconv.Atoi(rev)
+			if !ok || err != nil {
+				return nil, nil, errors.New("frozen_rule_invalid")
+			}
+			r, err := s.Rule(ctx, id, revision)
+			if err != nil {
+				return nil, nil, err
+			}
+			rules = append(rules, active{r, 1})
 		}
-		if e = json.Unmarshal([]byte(b), &a.r); e != nil {
-			rows.Close()
-			return nil, nil, e
+	} else {
+		rows, err := s.db.QueryContext(ctx, "SELECT r.body,a.enabled FROM naming_rules r JOIN naming_active a ON r.id=a.id AND r.revision=a.revision ORDER BY r.id")
+		if err != nil {
+			return nil, nil, err
 		}
-		rules = append(rules, a)
+		for rows.Next() {
+			var b string
+			var a active
+			if err = rows.Scan(&b, &a.on); err != nil {
+				rows.Close()
+				return nil, nil, err
+			}
+			if err = json.Unmarshal([]byte(b), &a.r); err != nil {
+				rows.Close()
+				return nil, nil, err
+			}
+			rules = append(rules, a)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, nil, err
+		}
 	}
-	e = rows.Err()
-	rows.Close()
-	if e != nil {
-		return nil, nil, e
-	}
+
 	var result *NamingDecision
 	var refs []string
 	unmatched := false
@@ -216,15 +241,7 @@ func (s *Store) ResolveNaming(ctx context.Context, id, source string) (*NamingDe
 		if fileErr != nil {
 			return nil, nil, fileErr
 		}
-		if p.Collection {
-			return nil, nil, errors.New("collection_preview_only")
-		}
-		if p.Relative != nil && f.Relative != nil && *p.Relative != *f.Relative {
-			return nil, nil, errors.New("title_file_conflict")
-		}
-		if p.Season != 0 && f.Season != 0 && p.Season != f.Season {
-			return nil, nil, errors.New("season_conflict")
-		}
+
 		matched := false
 		for _, a := range rules {
 			if !a.r.matches(c.Subscription, p) {
@@ -245,6 +262,23 @@ func (s *Store) ResolveNaming(ctx context.Context, id, source string) (*NamingDe
 			refs = append(refs, fmt.Sprintf("%s@%d", a.r.ID, a.r.Revision))
 		}
 		if !matched {
+			for _, a := range rules {
+				if a.r.knownIdentity(c.Subscription, p) {
+					return nil, nil, errors.New("rule_scope_ambiguous")
+				}
+			}
+			if p.Collection {
+				return nil, nil, errors.New("collection_preview_only")
+			}
+			if p.Relative != nil && f.Relative != nil && *p.Relative != *f.Relative {
+				return nil, nil, errors.New("title_file_conflict")
+			}
+			if p.Season != 0 && f.Season != 0 && p.Season != f.Season {
+				return nil, nil, errors.New("season_conflict")
+			}
+			if p.Absolute != nil || f.Absolute != nil {
+				return nil, nil, errors.New("absolute_mapping_unresolved")
+			}
 			unmatched = true
 		}
 	}

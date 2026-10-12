@@ -42,15 +42,20 @@ type Job struct {
 
 // Plan 在确认时冻结全部文件，版本或指纹变化即失效。
 type Plan struct {
-	ParserVersion  int             `json:"parser_version,omitempty"`
-	Started        bool            `json:"started,omitempty"`
-	RuleEpoch      int64           `json:"rule_epoch,omitempty"`
-	ContextVersion int64           `json:"context_version,omitempty"`
-	Decision       *NamingDecision `json:"decision,omitempty"`
-	RuleRefs       []string        `json:"rule_refs,omitempty"`
-	Version        int             `json:"version"`
-	Approved       bool            `json:"approved"`
-	Files          []PlannedFile   `json:"files"`
+	Manual         *ManualSemantics          `json:"manual,omitempty"`
+	Evidence       []ContextEvidence         `json:"evidence,omitempty"`
+	Collection     bool                      `json:"collection,omitempty"`
+	Decisions      map[string]NamingDecision `json:"decisions,omitempty"`
+	Manifest       []SourceEvidence          `json:"manifest,omitempty"`
+	ParserVersion  int                       `json:"parser_version,omitempty"`
+	Started        bool                      `json:"started,omitempty"`
+	RuleEpoch      int64                     `json:"rule_epoch,omitempty"`
+	ContextVersion int64                     `json:"context_version,omitempty"`
+	Decision       *NamingDecision           `json:"decision,omitempty"`
+	RuleRefs       []string                  `json:"rule_refs,omitempty"`
+	Version        int                       `json:"version"`
+	Approved       bool                      `json:"approved"`
+	Files          []PlannedFile             `json:"files"`
 }
 
 // PlannedFile 仅用相对路径，指纹覆盖内容与文件身份。
@@ -62,6 +67,8 @@ type PlannedFile struct {
 
 // Event 不保存秘密上下文，可按 ID 至少一次重放。
 type Event struct {
+	PlanVersion   *int
+	FileIndex     *int
 	ID            int64
 	SchemaVersion int
 	JobID         string
@@ -101,12 +108,12 @@ func OpenStore(path string) (*Store, error) {
 		db.Close()
 		return nil, e
 	}
-	if schema > 3 {
+	if schema > 4 {
 		db.Close()
 		return nil, errors.New("unsupported_schema_version")
 	}
 
-	_, e = db.Exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; BEGIN;
+	migration := `PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; BEGIN;
  CREATE TABLE IF NOT EXISTS subscriptions(id TEXT PRIMARY KEY);
  CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY, hash TEXT UNIQUE NOT NULL, version INTEGER NOT NULL, body TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS resources(subscription TEXT NOT NULL REFERENCES subscriptions(id), guid TEXT NOT NULL, job_id TEXT NOT NULL REFERENCES jobs(id), PRIMARY KEY(subscription,guid));
@@ -122,7 +129,23 @@ func OpenStore(path string) (*Store, error) {
  CREATE TABLE IF NOT EXISTS manual_series(id TEXT PRIMARY KEY,episode_order TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS release_context(job_id TEXT NOT NULL REFERENCES jobs(id),subscription TEXT NOT NULL,guid TEXT NOT NULL,title_hash TEXT NOT NULL,title TEXT NOT NULL,PRIMARY KEY(subscription,guid,title_hash));
  CREATE TABLE IF NOT EXISTS naming_events(id INTEGER PRIMARY KEY AUTOINCREMENT,rule_id TEXT NOT NULL,revision INTEGER NOT NULL,kind TEXT NOT NULL,created_at INTEGER NOT NULL);
- PRAGMA user_version=3; COMMIT;`)
+ CREATE TABLE IF NOT EXISTS target_reservations(target TEXT PRIMARY KEY,job_id TEXT NOT NULL REFERENCES jobs(id),plan_version INTEGER NOT NULL);
+ CREATE TABLE IF NOT EXISTS file_execution(job_id TEXT NOT NULL REFERENCES jobs(id),plan_version INTEGER NOT NULL,file_index INTEGER NOT NULL,state TEXT NOT NULL CHECK(state IN ('pending','intended','linked')),video INTEGER NOT NULL,discovered INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(job_id,plan_version,file_index));
+ `
+	if schema < 4 {
+		migration += `ALTER TABLE events ADD COLUMN plan_version INTEGER;
+ ALTER TABLE events ADD COLUMN file_index INTEGER;
+ INSERT OR IGNORE INTO plan_history(job_id,version,body) SELECT id,json_extract(body,'$.plan.version'),json_extract(body,'$.plan') FROM jobs WHERE json_type(body,'$.plan')='object';
+ INSERT INTO target_reservations(target,job_id,plan_version)
+ SELECT json_extract(f.value,'$.target'),j.id,json_extract(j.body,'$.plan.version') FROM jobs j,json_each(j.body,'$.plan.files') f
+ WHERE NOT EXISTS(SELECT 1 FROM target_reservations r WHERE r.target=json_extract(f.value,'$.target') AND r.job_id=j.id AND r.plan_version=json_extract(j.body,'$.plan.version'));
+ INSERT OR IGNORE INTO file_execution(job_id,plan_version,file_index,state,video,discovered)
+ SELECT j.id,json_extract(j.body,'$.plan.version'),CAST(f.key AS INTEGER),CASE WHEN json_extract(j.body,'$.import')='imported' THEN 'linked' ELSE 'pending' END,
+ lower(substr(json_extract(f.value,'$.target'),-4)) IN ('.mkv','.mp4'),json_extract(j.body,'$.discovery')='confirmed' FROM jobs j,json_each(j.body,'$.plan.files') f;
+ `
+	}
+	migration += "PRAGMA user_version=4; COMMIT;"
+	_, e = db.Exec(migration)
 	if e != nil {
 		db.Close()
 		return nil, e
@@ -218,6 +241,9 @@ func (s *Store) Get(ctx context.Context, id string) (Job, error) {
 
 // Save 用版本 CAS 保证领域状态和事件不可分离。
 func (s *Store) Save(ctx context.Context, j *Job, kind string) error {
+	return s.save(ctx, j, kind, nil)
+}
+func (s *Store) save(ctx context.Context, j *Job, kind string, index *int) error {
 	tx, e := s.db.BeginTx(ctx, nil)
 	if e != nil {
 		return e
@@ -232,7 +258,34 @@ func (s *Store) Save(ctx context.Context, j *Job, kind string) error {
 			return errors.New("stale_plan")
 		}
 	}
+	if kind == "plan_invalidated" {
+		if _, e = tx.ExecContext(ctx, "DELETE FROM target_reservations WHERE job_id=?", j.ID); e != nil {
+			return e
+		}
+	}
+	if index != nil {
+		if e = advanceFileTx(ctx, tx, j, *index, kind); e != nil {
+			return e
+		}
+	}
 	if kind == "plan_ready" && j.Plan != nil {
+		var oldBody string
+		if e = tx.QueryRowContext(ctx, "SELECT body FROM jobs WHERE id=?", j.ID).Scan(&oldBody); e != nil {
+			return e
+		}
+		var old Job
+		if e = json.Unmarshal([]byte(oldBody), &old); e != nil {
+			return e
+		}
+		if old.Import == "imported" || (old.Plan != nil && old.Plan.Started) {
+			return errors.New("plan_frozen")
+		}
+		if _, e = tx.ExecContext(ctx, "DELETE FROM target_reservations WHERE job_id=?", j.ID); e != nil {
+			return e
+		}
+		if e = reservePlanTx(ctx, tx, j); e != nil {
+			return e
+		}
 		b, err := json.Marshal(j.Plan)
 		if err != nil {
 			return err
@@ -255,7 +308,11 @@ func (s *Store) Save(ctx context.Context, j *Job, kind string) error {
 	if n != 1 {
 		return errors.New("stale_version")
 	}
-	if _, e = tx.ExecContext(ctx, "INSERT INTO events(job_id,kind,created_at) VALUES(?,?,?)", j.ID, kind, time.Now().Unix()); e != nil {
+	var version *int
+	if j.Plan != nil {
+		version = &j.Plan.Version
+	}
+	if _, e = tx.ExecContext(ctx, "INSERT INTO events(job_id,kind,created_at,plan_version,file_index) VALUES(?,?,?,?,?)", j.ID, kind, time.Now().Unix(), version, index); e != nil {
 		return e
 	}
 	if e = tx.Commit(); e == nil {
@@ -284,7 +341,7 @@ func (s *Store) IDs(ctx context.Context) ([]string, error) {
 
 // Events 按游标读取有界事件页，失败不推进消费者游标。
 func (s *Store) Events(ctx context.Context, after int64) ([]Event, error) {
-	rows, e := s.db.QueryContext(ctx, "SELECT id,schema_version,job_id,kind FROM events WHERE id>? ORDER BY id LIMIT 100", after)
+	rows, e := s.db.QueryContext(ctx, "SELECT id,schema_version,job_id,kind,plan_version,file_index FROM events WHERE id>? ORDER BY id LIMIT 100", after)
 	if e != nil {
 		return nil, e
 	}
@@ -292,7 +349,7 @@ func (s *Store) Events(ctx context.Context, after int64) ([]Event, error) {
 	var result []Event
 	for rows.Next() {
 		var v Event
-		if e = rows.Scan(&v.ID, &v.SchemaVersion, &v.JobID, &v.Kind); e != nil {
+		if e = rows.Scan(&v.ID, &v.SchemaVersion, &v.JobID, &v.Kind, &v.PlanVersion, &v.FileIndex); e != nil {
 			return nil, e
 		}
 		result = append(result, v)

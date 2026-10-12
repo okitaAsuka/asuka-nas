@@ -15,7 +15,7 @@ func TestWholeManifestBlocksCollectionsAndAmbiguousSubtitles(t *testing.T) {
 		reason string
 	}{
 		{"collection", []string{"Show.S01E01.mkv", "Show.S01E02.mkv"}, "multiple_or_missing_videos"},
-		{"mixed_video_formats", []string{"Show.S01E01.mkv", "Show.S01E02.avi"}, "multiple_or_missing_videos"},
+		{"mixed_video_formats", []string{"Show.S01E01.mkv", "Show.S01E02.avi"}, "unsupported_video"},
 		{"unknown_season", []string{"Show - 01.mkv"}, "needs_confirmation"},
 		{"unknown_episode", []string{"Show.S01.mkv"}, "needs_confirmation"},
 		{"subtitle_wrong_stem", []string{"Show.S01E01.mkv", "episode.ass"}, "subtitle_mapping_ambiguous"},

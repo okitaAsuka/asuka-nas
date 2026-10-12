@@ -44,7 +44,11 @@ func normalizeTitle(raw string) (string, error) {
 	return strings.Join(strings.Fields(s), " "), nil
 }
 
-var numericGroup = regexp.MustCompile(`^[0-9]+$`)
+var specialEpisode = regexp.MustCompile(`(?i)(?:\b(?:SP|OVA|OAD|NCOP|NCED|Special|PV)(?:[ ._-]*[0-9]+)?\b|特典|特别篇|特別篇|番外)`)
+var oversizedNumber = regexp.MustCompile(`(?i)(?:第[0-9]{3,}季|[0-9]{3,}(?:st|nd|rd|th)\b|S[0-9]{3,}E|S[0-9]+E[0-9]{4,}| - [0-9]{4,})`)
+var unsupportedNumber = regexp.MustCompile(`(?i)(?:(?: - [0-9]{1,3}|S[0-9]{1,2}E[0-9]{1,3}|总第\s*[0-9]{1,3})[.,:/_&+;][0-9]+|(?: - [0-9]{1,3}|S[0-9]{1,2}E[0-9]{1,3})[a-z]+|\[[0-9]{1,3}[.,:/_&+;][0-9]+|\[[0-9]{1,2}[a-z]+|总第[0-9]{4,})`)
+var aliasEpisodeBoundary = regexp.MustCompile(`(?i)^[ ._-]+S[0-9]{1,2}E[0-9]{1,3}(?:$|[ .\[])`)
+var numericGroup = regexp.MustCompile(`^[0-9]+(?:[~-][0-9]+)?$`)
 var bracketEpisode = regexp.MustCompile(`\[([0-9]{1,3})(?:[~\-]([0-9]{1,3}))?\]`)
 var dashEpisode = regexp.MustCompile(` - ([0-9]{1,3})(?:[~\-]([0-9]{1,3}))?(?:[\] .]|$)`)
 var absoluteEpisode = regexp.MustCompile(`总第\s*([0-9]{1,3})(?:[~\-]([0-9]{1,3}))?`)
@@ -67,17 +71,20 @@ func episodeRange(a, b string) (*EpisodeRange, error) {
 // ParseTitle 只提取显式证据；篇章名不能推导季号，范围不能授权合集执行。
 func ParseTitle(raw string) (TitlePreview, error) {
 	s, err := normalizeTitle(raw)
-	p := TitlePreview{Normalized: s, ParserVersion: 1}
+	p := TitlePreview{Normalized: s, ParserVersion: 2}
 	if err != nil {
 		return p, err
 	}
 	if multiEpisode.MatchString(s) {
 		return p, errors.New("collection_preview_only")
 	}
+	if oversizedNumber.MatchString(s) || unsupportedNumber.MatchString(s) {
+		return p, errors.New("unsupported_episode_kind")
+	}
 	if strings.HasPrefix(s, "[") {
 		if i := strings.Index(s, "]"); i > 1 {
 			g := s[1:i]
-			if !numericGroup.MatchString(g) {
+			if !numericGroup.MatchString(g) && !absoluteEpisode.MatchString(g) && !seasonEpisode.MatchString(g) {
 				p.Group = g
 			}
 		}
@@ -149,22 +156,38 @@ func ParseTitle(raw string) (TitlePreview, error) {
 }
 
 type NamingRule struct {
-	ID           string   `json:"id"`
-	Revision     int      `json:"revision"`
-	SeriesID     string   `json:"series_id"`
-	Provider     string   `json:"provider"`
-	Order        string   `json:"order"`
-	Subscription string   `json:"subscription"`
-	Group        string   `json:"group,omitempty"`
-	Aliases      []string `json:"aliases"`
-	Season       int      `json:"season"`
-	Directory    string   `json:"directory"`
-	DisplayName  string   `json:"display_name"`
+	Episodes     *EpisodeRange    `json:"episodes,omitempty"`
+	Absolute     *AbsoluteMapping `json:"absolute,omitempty"`
+	ID           string           `json:"id"`
+	Revision     int              `json:"revision"`
+	SeriesID     string           `json:"series_id"`
+	Provider     string           `json:"provider"`
+	Order        string           `json:"order"`
+	Subscription string           `json:"subscription"`
+	Group        string           `json:"group,omitempty"`
+	Aliases      []string         `json:"aliases"`
+	Season       int              `json:"season"`
+	Directory    string           `json:"directory"`
+	DisplayName  string           `json:"display_name"`
 }
 
 var opaqueName = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,80}$`)
 
 func (r NamingRule) Validate() error {
+	if r.Episodes != nil && (r.Episodes.Start < 1 || r.Episodes.End < r.Episodes.Start || r.Episodes.End > 999) {
+		return errors.New("rule_invalid_range")
+	}
+	if r.Absolute != nil {
+		a := r.Absolute
+		_, end, e := MapAbsolute(a.End, EpisodeRange{a.Start, a.End}, r.Season, a.RelativeStart)
+		if e != nil {
+			return e
+		}
+		if r.Episodes != nil && (a.RelativeStart < r.Episodes.Start || end > r.Episodes.End) {
+			return errors.New("rule_invalid_range")
+		}
+	}
+
 	if !opaqueName.MatchString(r.ID) || !opaqueName.MatchString(r.SeriesID) || !opaqueName.MatchString(r.Order) || !opaqueName.MatchString(r.Subscription) || r.Provider != "manual" || r.Revision < 1 || r.Season < 1 || r.Season > 99 || !local(r.Directory) || !local(r.DisplayName) || filepath.Base(r.DisplayName) != r.DisplayName || len(r.Aliases) < 1 || len(r.Aliases) > 32 {
 		return errors.New("rule_invalid")
 	}
@@ -183,28 +206,62 @@ func (r NamingRule) Validate() error {
 }
 
 // aliasMatched 仅接受分段起始的完整别名；不做模糊子串匹配。
-func aliasMatched(p TitlePreview, alias string) bool {
-	s := p.Normalized
+func titleSegments(p TitlePreview) []string {
+	candidates := []string{p.Normalized}
 	if p.Group != "" {
-		s = strings.TrimSpace(strings.TrimPrefix(s, "["+p.Group+"]"))
+		candidates = append(candidates, strings.TrimSpace(strings.TrimPrefix(p.Normalized, "["+p.Group+"]")))
 	}
-	for _, part := range strings.Split(s, "/") {
-		part = strings.TrimLeft(strings.TrimSpace(part), "[")
+	var result []string
+	for _, s := range candidates {
+		for _, part := range strings.Split(s, "/") {
+			result = append(result, strings.TrimLeft(strings.TrimSpace(part), "["))
+		}
+	}
+	return result
+}
+func aliasMatched(p TitlePreview, alias string) bool {
+	for _, part := range titleSegments(p) {
 		if part == alias {
 			return true
 		}
 		if strings.HasPrefix(part, alias) {
 			tail := part[len(alias):]
-			if strings.HasPrefix(tail, " [") || strings.HasPrefix(tail, " - ") || strings.HasPrefix(tail, "]") {
+			if strings.HasPrefix(tail, " [") || strings.HasPrefix(tail, "[") || strings.HasPrefix(tail, " - ") || strings.HasPrefix(tail, "]") || aliasEpisodeBoundary.MatchString(tail) {
 				return true
 			}
 		}
 	}
 	return false
 }
+
+// knownIdentity 是有界身份线索，格式或 group 不确定时阻塞，不能假装没有规则。
+func (r NamingRule) knownIdentity(subscription string, p TitlePreview) bool {
+	if r.Subscription != subscription {
+		return false
+	}
+	for _, a := range r.Aliases {
+		for _, part := range titleSegments(p) {
+			if part == a {
+				return true
+			}
+			if strings.HasPrefix(part, a) {
+				tail := part[len(a):]
+				if len(tail) > 0 && strings.ContainsRune(" [] ._-", rune(tail[0])) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 func (r NamingRule) matches(subscription string, p TitlePreview) bool {
 	if r.Subscription != subscription || (r.Group != "" && r.Group != p.Group) {
 		return false
+	}
+	if r.Group != "" {
+		p.Normalized = strings.TrimSpace(strings.TrimPrefix(p.Normalized, "["+r.Group+"]"))
+		p.Group = ""
 	}
 	for _, a := range r.Aliases {
 		if aliasMatched(p, a) {
@@ -215,15 +272,20 @@ func (r NamingRule) matches(subscription string, p TitlePreview) bool {
 }
 
 type NamingDecision struct {
-	SeriesID string `json:"series_id"`
-	Provider string `json:"provider"`
-	Order    string `json:"order"`
-	Season   int    `json:"season"`
-	Episode  int    `json:"episode"`
-	Target   string `json:"target"`
+	ExpectedStart int    `json:"expected_start,omitempty"`
+	ExpectedEnd   int    `json:"expected_end,omitempty"`
+	SeriesID      string `json:"series_id"`
+	Provider      string `json:"provider"`
+	Order         string `json:"order"`
+	Season        int    `json:"season"`
+	Episode       int    `json:"episode"`
+	Target        string `json:"target"`
 }
 
 func (r NamingRule) Resolve(title, source string) (NamingDecision, error) {
+	if r.Episodes != nil || r.Absolute != nil {
+		return r.resolveMapped(title, source)
+	}
 	var d NamingDecision
 	p, e := ParseTitle(title)
 	if e != nil {
@@ -239,6 +301,9 @@ func (r NamingRule) Resolve(title, source string) (NamingDecision, error) {
 	if p.Group != "" && f.Group != "" && p.Group != f.Group {
 		return d, errors.New("title_file_conflict")
 	}
+	if p.Absolute != nil || f.Absolute != nil {
+		return d, errors.New("absolute_mapping_unresolved")
+	}
 	if p.Collection || f.Collection {
 		return d, errors.New("collection_preview_only")
 	}
@@ -251,7 +316,7 @@ func (r NamingRule) Resolve(title, source string) (NamingDecision, error) {
 	if (p.Season != 0 && p.Season != r.Season) || (f.Season != 0 && f.Season != r.Season) {
 		return d, errors.New("season_conflict")
 	}
-	d = NamingDecision{r.SeriesID, "manual", r.Order, r.Season, p.Relative.Start, filepath.Join(r.Directory, fmt.Sprintf("Season %02d", r.Season), fmt.Sprintf("%s - S%02dE%02d%s", r.DisplayName, r.Season, p.Relative.Start, filepath.Ext(source)))}
+	d = NamingDecision{0, 0, r.SeriesID, "manual", r.Order, r.Season, p.Relative.Start, filepath.Join(r.Directory, fmt.Sprintf("Season %02d", r.Season), fmt.Sprintf("%s - S%02dE%02d%s", r.DisplayName, r.Season, p.Relative.Start, filepath.Ext(source)))}
 	return d, nil
 }
 

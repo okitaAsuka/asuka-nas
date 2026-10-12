@@ -84,7 +84,7 @@ func TestRejectFutureSchema(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if _, e = s.db.Exec("PRAGMA user_version=4"); e != nil {
+	if _, e = s.db.Exec("PRAGMA user_version=5"); e != nil {
 		t.Fatal(e)
 	}
 	s.Close()
@@ -105,7 +105,7 @@ func TestSchemaMigrationAndReopenedConnectionPragmas(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.db.Exec("DROP TABLE source_events; DROP TABLE source_state; DROP TABLE torrent_payloads; PRAGMA user_version=1;"); err != nil {
+	if _, err = s.db.Exec("DROP TABLE source_events; DROP TABLE source_state; DROP TABLE torrent_payloads; ALTER TABLE events DROP COLUMN plan_version; ALTER TABLE events DROP COLUMN file_index; PRAGMA user_version=1;"); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()

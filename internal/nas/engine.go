@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"path/filepath"
 	"sync"
 	"time"
 )
@@ -15,7 +14,7 @@ import (
 // Engine 单实例串行执行；外部效果可重试，SQLite 保留恢复点。
 type Engine struct {
 	Store   *Store
-	Files   *Files
+	Files   FileOperations
 	QB      Downloader
 	Emby    Media
 	Library string
@@ -170,13 +169,14 @@ func (e *Engine) tick(ctx context.Context, id string, now time.Time) error {
 		}
 		j.CheckedContext = j.ContextVersion
 		video, reason := singleVideo(j.Sources)
-		if reason != "" {
-			j.Import = "needs_confirmation"
-			j.ErrorCode = reason
-			j.BlockReason = reason
-			return e.Store.Save(ctx, &j, "needs_confirmation")
+		var p *Plan
+		if reason == "multiple_or_missing_videos" {
+			p, err = e.collectionPlan(ctx, &j)
+		} else if reason != "" {
+			err = errors.New(reason)
+		} else {
+			p, err = e.namingPlan(ctx, &j, video)
 		}
-		p, err := e.namingPlan(ctx, &j, video)
 		if err != nil {
 			if !namingBlock(err.Error()) {
 				return e.fail(ctx, &j, namingFailure(err.Error()))
@@ -190,6 +190,13 @@ func (e *Engine) tick(ctx context.Context, id string, now time.Time) error {
 		j.Plan = p
 		j.Import = "planned"
 		if err = e.Store.Save(ctx, &j, "plan_ready"); err != nil {
+			if err.Error() == "target_reserved" {
+				j.Plan = nil
+				j.Import = "needs_confirmation"
+				j.BlockReason = "target_reserved"
+				j.ErrorCode = "target_reserved"
+				return e.Store.Save(ctx, &j, "needs_confirmation")
+			}
 			return err
 		}
 	}
@@ -201,30 +208,7 @@ func (e *Engine) tick(ctx context.Context, id string, now time.Time) error {
 			return nil
 		}
 
-		// 先验证所有指纹再开始；单个链接与状态提交间崩溃靠同 inode 恢复。
-		for _, f := range j.Plan.Files {
-			fp, err := e.Files.FingerprintContext(ctx, f.Source)
-			if err != nil {
-				return e.fail(ctx, &j, err.Error())
-			}
-			if fp != f.Fingerprint {
-				return e.fail(ctx, &j, "fingerprint_changed")
-			}
-		}
-		if !j.Plan.Started {
-			j.Plan.Started = true
-			if err = e.Store.Save(ctx, &j, "import_started"); err != nil {
-				return err
-			}
-		}
-		for _, f := range j.Plan.Files {
-			if err = e.Files.LinkContext(ctx, f); err != nil {
-				return e.fail(ctx, &j, err.Error())
-			}
-		}
-		j.Import = "imported"
-		j.ErrorCode = ""
-		if err = e.Store.Save(ctx, &j, "imported"); err != nil {
+		if err = e.executePlan(ctx, &j); err != nil {
 			return err
 		}
 	}
@@ -239,15 +223,7 @@ func (e *Engine) tick(ctx context.Context, id string, now time.Time) error {
 		}
 	}
 	if j.Refresh == "requested" && j.Discovery != "confirmed" {
-		found, err := e.Emby.Discover(ctx, filepath.Join(e.Library, j.Plan.Files[0].Target))
-		if err != nil {
-			return e.fail(ctx, &j, "discovery_failed")
-		}
-		if found {
-			j.Discovery = "confirmed"
-			j.ErrorCode = ""
-			return e.Store.Save(ctx, &j, "discovered")
-		}
+		return e.discoverPlan(ctx, &j)
 	}
 	return nil
 }

@@ -74,7 +74,7 @@ func TestMappingConflictsBlockAndNeverFallback(t *testing.T) {
 	}{
 		{"different_sources", "[测试组] 虚构作品 篇章 [02]", "Show.S09E02.mkv", "mapping_conflict", true},
 		{"file_contradiction", "[测试组] 虚构作品 篇章 [03]", "Show.S09E02.mkv", "title_file_conflict", false},
-		{"collection", "[测试组] 虚构作品 篇章 - 01~11 [总第67~77]", "Show.S09E02.mkv", "collection_preview_only", false},
+		{"collection", "[测试组] 虚构作品 篇章 - 01~11 [总第67~77]", "Show.S09E02.mkv", "absolute_mapping_unresolved", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFixture(t, tc.source, -1)

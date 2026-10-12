@@ -13,15 +13,16 @@ func (e *Engine) namingCheck(ctx context.Context, j *Job) error {
 	}
 	frozen := j.Import == "imported" || (j.Plan != nil && j.Plan.Started)
 	if frozen {
-		if j.CheckedContext == j.ContextVersion {
+		if j.CheckedContext == j.ContextVersion && j.BlockReason != "late_mapping_conflict" {
 			return nil
 		}
 		code := ""
-		if j.Plan != nil && len(j.Plan.Files) > 0 {
-			d, _, resolveErr := e.Store.ResolveNaming(ctx, j.ID, j.Plan.Files[0].Source)
-			if resolveErr != nil || (j.Plan.Decision != nil && (d == nil || *d != *j.Plan.Decision)) || (j.Plan.Decision == nil && d != nil && d.Target != j.Plan.Files[0].Target) {
-				code = "late_mapping_conflict"
-			}
+		if err := e.Store.checkFrozenEvidence(ctx, j); err != nil {
+			code = "late_mapping_conflict"
+		}
+
+		if code == j.BlockReason && j.CheckedContext == j.ContextVersion {
+			return nil
 		}
 		j.CheckedContext = j.ContextVersion
 		if code != "" {
@@ -29,6 +30,13 @@ func (e *Engine) namingCheck(ctx context.Context, j *Job) error {
 			j.ErrorCode = code
 		}
 		kind := "source_context_checked"
+		if code == "" && j.BlockReason == "late_mapping_conflict" {
+			j.BlockReason = ""
+			if j.ErrorCode == "late_mapping_conflict" {
+				j.ErrorCode = ""
+			}
+			kind = "mapping_conflict_cleared"
+		}
 		if code != "" {
 			kind = code
 		}
@@ -65,6 +73,9 @@ func (e *Engine) namingPlan(ctx context.Context, j *Job, video string) (*Plan, e
 	}
 	var p *Plan
 	if d != nil {
+		if d.ExpectedEnd > d.ExpectedStart {
+			return nil, errors.New("collection_incomplete")
+		}
 		p, err = e.Files.ProposedManifest(ctx, video, d.Target, j.Version+1, j.Sources)
 	} else {
 		p, err = e.Files.PreviewManifest(ctx, video, j.Version+1, j.Sources)
@@ -72,11 +83,17 @@ func (e *Engine) namingPlan(ctx context.Context, j *Job, video string) (*Plan, e
 	if err != nil {
 		return nil, err
 	}
-	p.ParserVersion = 1
+	p.ParserVersion = 2
 	p.RuleEpoch = epoch
 	p.ContextVersion = j.ContextVersion
 	p.Decision = d
 	p.RuleRefs = refs
+	if d == nil {
+		p.Manual = targetSemantics(p.Files[0].Target)
+	}
+	if err = e.Store.snapshotEvidence(ctx, j.ID, p); err != nil {
+		return nil, err
+	}
 	return p, nil
 }
 func (e *Engine) bindManualPlan(ctx context.Context, j Job, p *Plan) error {
@@ -94,17 +111,23 @@ func (e *Engine) bindManualPlan(ctx context.Context, j Job, p *Plan) error {
 	if d != nil && d.Target != p.Files[0].Target {
 		return errors.New("mapping_conflict")
 	}
-	p.ParserVersion = 1
+	p.ParserVersion = 2
 	p.RuleEpoch = epoch
 	p.ContextVersion = j.ContextVersion
 	p.Decision = d
 	p.RuleRefs = refs
+	if d == nil {
+		p.Manual = targetSemantics(p.Files[0].Target)
+	}
+	if err = e.Store.snapshotEvidence(ctx, j.ID, p); err != nil {
+		return err
+	}
 	return nil
 }
 
 func namingBlock(code string) bool {
 	switch code {
-	case "needs_confirmation", "subtitle_mapping_ambiguous", "title_invalid", "episode_ambiguous", "episode_conflict", "season_conflict", "season_ambiguous", "collection_preview_only", "episode_unresolved", "title_file_conflict", "rule_disabled", "mapping_conflict", "source_mapping_unresolved":
+	case "rule_scope_ambiguous", "collection_mapping_required", "collection_incomplete", "duplicate_episode", "absolute_relative_conflict", "absolute_mapping_unresolved", "episode_out_of_bounds", "unsupported_episode_kind", "invalid_file_manifest", "unsupported_video", "unsupported_file_set", "multiple_or_missing_videos", "needs_confirmation", "subtitle_mapping_ambiguous", "title_invalid", "episode_ambiguous", "episode_conflict", "season_conflict", "season_ambiguous", "collection_preview_only", "episode_unresolved", "title_file_conflict", "rule_disabled", "mapping_conflict", "source_mapping_unresolved":
 		return true
 	}
 	return false

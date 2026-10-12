@@ -178,6 +178,9 @@ func (f *Files) LinkContext(ctx context.Context, p PlannedFile) error {
 	}
 	// /proc/self/fd 仅指向已验证的源 fd；AT_SYMLINK_FOLLOW 不作用于用户输入。
 	e = unix.Linkat(unix.AT_FDCWD, fmt.Sprintf("/proc/self/fd/%d", src), dst, name, unix.AT_SYMLINK_FOLLOW)
+	if errors.Is(e, unix.EACCES) || errors.Is(e, unix.EPERM) {
+		return errors.New("permission_denied")
+	}
 	if errors.Is(e, unix.EXDEV) {
 		return errors.New("cross_device")
 	}

@@ -58,3 +58,8 @@ qB adapter 使用 [官方 5.x API](https://github.com/qbittorrent/qBittorrent/wi
 
 
 MVP 收尾：合集识别覆盖常见视频扩展名，但只自动入库唯一 mkv/mp4。整个清单必须通过路径/文件类型/字幕映射检查，否则持久 block_reason 并整体待确认；Propose 同样执行此门禁。共享目录其它任务的旁车不被吸收。qB save_path 严格等于本地 downloads，不猜容器路径映射；同 inode 根拒绝。未到期来源走只读快速路径，空闲 job 无写事务或上游请求。`needs_confirmation` 的 block_reason 与短期 ErrorCode 分离，停止做种故障不抹去阻塞原因。
+
+
+## N3/N4 当前边界（覆盖早期仅单集描述）
+
+schema v4 引入全目标预约与逐文件持久执行，支持人工明确有界映射的完整合集；状态及迁移审查见 COLLECTIONS.md。命名优先人工版本规则，保留严格 SxxExx fallback，但已知规则的模糊 scope/别名、停用和证据矛盾不能 fallback。低置信度继续待确认。每个视频分别确认 Emby Path，全部确认才产生最终 discovered；做种仍独立。没有通用工作流框架或模型依赖。

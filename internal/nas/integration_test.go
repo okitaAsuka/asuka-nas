@@ -286,6 +286,9 @@ func TestRefreshRetryAndCrashAfterLink(t *testing.T) {
 	}
 	p.Approved = true
 	p.ContextVersion = j.ContextVersion
+	if e = f.engine.bindManualPlan(ctx, j, p); e != nil {
+		t.Fatal(e)
+	}
 	j.Plan = p
 	j.Download = "completed"
 	j.CompletedAt = 1000
