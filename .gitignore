@@ -6,3 +6,5 @@ config.json
 /.cache/
 
 /asuka-nas
+__pycache__/
+*.pyc

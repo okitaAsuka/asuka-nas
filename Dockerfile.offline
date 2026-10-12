@@ -1,0 +1,16 @@
+# BuildKit named context module-cache must contain only Go's cache/download tree.
+# Uses pre-existing verified dependencies; no dependency network access.
+FROM golang:1.26.9-bookworm AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+COPY --from=module-cache / /go/pkg/mod/cache/download/
+RUN --network=none GOPROXY=file:///go/pkg/mod/cache/download GOSUMDB=off go mod download && go mod verify
+COPY . .
+RUN --network=none CGO_ENABLED=0 GOPROXY=off GOSUMDB=off go build -trimpath -o /out/asuka-nas ./cmd/asuka-nas
+
+FROM debian:bookworm-slim
+COPY --from=build /out/asuka-nas /usr/local/bin/asuka-nas
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+USER 65532:65532
+ENTRYPOINT ["/usr/local/bin/asuka-nas"]
+CMD ["-run", "-config", "/config/config.json"]

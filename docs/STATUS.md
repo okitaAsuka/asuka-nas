@@ -1,6 +1,17 @@
 # 当前状态 / 2026-10-12
 
-当前最新阶段：本机中文管理 UI/API，迁移前实例锁修复，schema v5 + 控制扩展 v2 / parser v4。见 LOCAL_MANAGEMENT.md。下文旧阶段按历史保留；生产就绪未获确认。
+当前最新阶段：ceef1f4 之后的有界部署准备，见 DEPLOY_PREP.md、RUNNING.md。本机中文管理 UI/API、schema v5 + 控制扩展 v2 / parser v4 保持不变。下文旧阶段按历史保留；生产就绪未获确认。
+
+## 部署准备里程碑 / 2026-10-12
+
+Library bundle v6 恢复并核对 ceef1f455412df8443d4465730cf5e45ade397f0，完整历史 fsck 通过，独立目录和新本地分支 codex/nas-deploy-prep-20261012。
+定向回归已通过：100 历史订阅之后的 100 当前来源全部实际抓取；加强断言为每个来源恰好一次。实际 Chromium 验证载入/输入/静默赋值/reset/导航后旧 success/error 不能改新表单，保存绑定当前成功快照。
+
+已有 Actions 继续复用 make verify/verify-ui；前移 Python setup 并将 5 组预检安全测试纳入 make verify。
+新增 Python3 标准库只读 NAS 预检；实际 openat2、fd mount ID、当前 UID 权限、Docker 可见性等，分已证实/推断/未验。独立双参数 opt-in 探针仅写现有空隔离目录，不扫描媒体，不把同设备当硬链接成功。
+标准 Docker 依赖请求仍在 proxy.golang.org:443 被拒；已有缓存经 go.sum 校验后用 Dockerfile.offline、依赖/编译阶段 network=none 完成 linux/amd64 构建，非 root 无网络只读容器配置校验通过。
+
+最终完整验证结果在 DEPLOY_PREP.md 记录。真实 NAS、qBittorrent、Emby、Discord、arm64 和线上 CI 未验；未修改 asuka-agent、业务架构、认证或映射学习，未拓宽回环监听，未建远端/推送/合并/部署/接凭据。
 
 ## 提交阶段
 

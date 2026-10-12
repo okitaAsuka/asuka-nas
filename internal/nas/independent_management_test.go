@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -39,15 +40,25 @@ func TestIndependentControlProfileChurn(t *testing.T) {
 	if count != 200 || len(visible) != 200 || current != 100 {
 		t.Fatal("history truncated")
 	}
+	page, next, total, err := f.store.SubscriptionPage(ctx, "")
+	if err != nil || len(page) != 100 || next != "p0-099" || total != 200 {
+		t.Fatal("fixture must put all current subscriptions beyond the UI page", len(page), next, total, err)
+	}
 	var hits atomic.Int32
+	var requestedMu sync.Mutex
+	requested := map[string]int{}
 	feed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
+		requestedMu.Lock()
+		requested[r.URL.Path]++
+		requestedMu.Unlock()
 		fmt.Fprint(w, "<rss><channel></channel></rss>")
 	}))
 	defer feed.Close()
 	ps := []Subscription{}
 	for i := 0; i < 100; i++ {
-		ps = append(ps, Subscription{ID: fmt.Sprintf("p1-%03d", i), URL: feed.URL})
+		id := fmt.Sprintf("p1-%03d", i)
+		ps = append(ps, Subscription{ID: id, URL: feed.URL + "/" + id})
 	}
 	d := &Daemon{Managed: true, Engine: f.engine, Config: Config{Subscriptions: ps, PollSeconds: 60}, Source: NewSourceClient(time.Second, 2<<20, 8<<20, 100)}
 	if err := d.PollSources(ctx, time.Unix(1000, 0)); err != nil {
@@ -56,6 +67,13 @@ func TestIndependentControlProfileChurn(t *testing.T) {
 	t.Logf("actual local feed requests=%d; expected 100 current enabled sources", hits.Load())
 	if hits.Load() != 100 {
 		t.Fatal("current enabled sources were skipped")
+	}
+	requestedMu.Lock()
+	defer requestedMu.Unlock()
+	for _, profile := range ps {
+		if requested["/"+profile.ID] != 1 {
+			t.Fatal("each later-page subscription must be fetched exactly once", profile.ID, requested)
+		}
 	}
 
 }
