@@ -56,3 +56,84 @@ internal/nas/files_test.go:func TestConfirmationRechecksConflict(t *testing.T) {
 internal/nas/config_test.go:func TestConfigSafety(t *testing.T) {
 internal/nas/config_test.go:func TestStoreAtomicReplay(t *testing.T) {
 internal/nas/config_test.go:func TestRejectFutureSchema(t *testing.T) {
+
+## RSS/daemon 阶段复核包
+
+新增 `torrent.go`（有界 BEP3 原始 info 校验）、`source.go`（真实 RSS/.torrent HTTP 与来源约束）、`schedule.go`（持久预约/退避/来源事件）、`daemon.go`（两条常驻循环与单实例锁）、`source_test.go` 和 `cmd/asuka-nas/main_test.go`。
+SQLite v2 增加 torrent_payloads/source_state/source_events；job JSON 增加 has_torrent/attempts/next_attempt，旧数据兼容。
+旧 downloader/Emby/file adapters 仍是真实现，只有测试服务器 fake。daemon 现在是真实 CLI 能力，但只在本机 fixture/子进程中运行；无网络管理接口。
+
+### 核心路径
+
+Source.Poll：限频 GET RSS → 丢弃标题、哈希 GUID → 已见项跳过 → 同源/allowlist GET enclosure → TorrentHash 校验 → metainfo+job+resource_seen 同事务持久化。
+Engine.RetryTick：先停止全部已知到期任务 → 按 next_attempt 限频 → attempt_started 预约 → pending/requesting/requested/completed → approved plan → LinkContext → imported → refresh_requested → 独立 discovered；失败持久化 retry_scheduled。
+Files.LinkContext：openat2 固定源 → 指纹 → 逐层 mkdirat/openat2/fsync → 源 fsync → 独占 linkat → 同 inode 重放或冲突 → 再核指纹 → 目标目录 fsync → 返回给 SQLite imported 事务。
+Daemon.Run：RSS/job 两循环共享 SQLite，context 取消 → 取消在途请求/哈希 → WaitGroup 等待 → CLI defer 关闭资源；真实 SIGTERM 子进程用例已验证。
+
+### 最新全部测试名
+internal/nas/integration_test.go:func TestVerticalLoopReplayAndIndependentSeeding(t *testing.T) {
+internal/nas/integration_test.go:func TestUnknownSeasonStopsImmediatelyAndConfirmation(t *testing.T) {
+internal/nas/integration_test.go:func TestRefreshRetryAndCrashAfterLink(t *testing.T) {
+internal/nas/integration_test.go:func TestFilesFailureDoesNotPreventStop(t *testing.T) {
+internal/nas/integration_test.go:func TestDownloadPathMismatchStillStops(t *testing.T) {
+cmd/asuka-nas/main_test.go:func TestDaemonSIGTERM(t *testing.T) {
+internal/nas/config_test.go:func TestConfigSafety(t *testing.T) {
+internal/nas/config_test.go:func TestStoreAtomicReplay(t *testing.T) {
+internal/nas/config_test.go:func TestRejectFutureSchema(t *testing.T) {
+internal/nas/config_test.go:func TestSchemaMigrationAndReopenedConnectionPragmas(t *testing.T) {
+internal/nas/recovery_test.go:func TestExternalEffectThenTransactionFailure(t *testing.T) {
+internal/nas/recovery_test.go:func TestClockRollbackRestartAndNoSourceDeletion(t *testing.T) {
+internal/nas/recovery_test.go:func TestDirectorySwapCannotFollowSymlink(t *testing.T) {
+internal/nas/recovery_test.go:func TestCancelledImportHasNoFilesystemEffect(t *testing.T) {
+internal/nas/recovery_test.go:func TestConfigSizeLimitIncludesTrailingWhitespace(t *testing.T) {
+internal/nas/source_test.go:func TestTorrentExactInfoHashAndRejectMalformed(t *testing.T) {
+internal/nas/source_test.go:func TestRSSHTTPToTorrentUploadAndRestart(t *testing.T) {
+internal/nas/source_test.go:func TestSourceFailureBackoffPersists(t *testing.T) {
+internal/nas/source_test.go:func TestEnclosureOriginRedirectAndBodyLimits(t *testing.T) {
+internal/nas/source_test.go:func TestDaemonCancellationAndInstanceLock(t *testing.T) {
+internal/nas/source_test.go:func TestJobRetrySurvivesRestartWithoutDelayingStop(t *testing.T) {
+internal/nas/source_test.go:func FuzzTorrentHashDoesNotPanic(f *testing.F) {
+internal/nas/source_test.go:func TestDaemonFailureLogsOnlySafeCodes(t *testing.T) {
+internal/nas/source_test.go:func TestSourceReservationSurvivesCrashBeforeRequest(t *testing.T) {
+internal/nas/source_test.go:func TestMultiFileTorrentRejectsPathAndAliasEscapes(t *testing.T) {
+internal/nas/source_test.go:func TestPersistedTorrentCorruptionCannotDispatchDifferentHash(t *testing.T) {
+internal/nas/clients_test.go:func TestHTTPBoundaryRejectsRedirectAndRedacts(t *testing.T) {
+internal/nas/clients_test.go:func TestRSSUntrustedAndUnsupported(t *testing.T) {
+internal/nas/clients_test.go:func TestQBLoginAndSemanticFailure(t *testing.T) {
+internal/nas/clients_test.go:func TestDownloaderRejectsBroadOrInjectedCommands(t *testing.T) {
+internal/nas/files_test.go:func TestFileSafetyAndIdempotence(t *testing.T) {
+internal/nas/files_test.go:func TestStaleConfirmationAndSymlinkSidecar(t *testing.T) {
+internal/nas/files_test.go:func TestConflictDoesNotBlockSeedDeadline(t *testing.T) {
+internal/nas/files_test.go:func TestConfirmationRechecksConflict(t *testing.T) {
+
+### 当前完整文件树（不含 .git 和本地二进制）
+.dockerignore
+.github/workflows/ci.yml
+.gitignore
+AGENTS.md
+Dockerfile
+Makefile
+README.md
+config.example.json
+docs/API.md
+docs/DESIGN.md
+docs/REVIEW.md
+docs/STATUS.md
+go.mod
+go.sum
+internal/nas/clients.go
+internal/nas/clients_test.go
+internal/nas/config.go
+internal/nas/config_test.go
+internal/nas/daemon.go
+internal/nas/engine.go
+internal/nas/files_linux.go
+internal/nas/files_test.go
+internal/nas/integration_test.go
+internal/nas/recovery_test.go
+internal/nas/schedule.go
+internal/nas/source.go
+internal/nas/source_test.go
+internal/nas/store.go
+internal/nas/torrent.go
+scripts/dev.sh

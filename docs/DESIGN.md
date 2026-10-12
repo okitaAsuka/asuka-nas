@@ -11,7 +11,7 @@ asuka-agent 将来只通过 v1 API 查询、通知和建议；不得直接写数
 ## 状态与重放
 
 subscriptions 保存来源标识；resources 以订阅+RSS GUID 去重，同时以 torrent infohash 全局去重。
-RSS 标题和 URL 都不进日志或事件。v1 仅接受带明确 BTIH 的 magnet，避免为了获取哈希访问未知 URL；蜜柑 torrent enclosure 解析后续实现。
+RSS 标题和 URL 都不进日志或事件。支持明确 BTIH magnet 与 HTTP .torrent enclosure。enclosure 仅允许订阅同源或配置 allowlist，拒绝重定向；元数据有界读取，按原始 info 字节计算 SHA1，不重新编码。
 jobs 独立保存 download/import/refresh/discovery/seed 状态。download completion 来自 qB 的 completion_on，首次持久化后不后移。
 0–7 天配置，按完成时间算 stop_at；0 立即停止。只调用 stop，不调用 delete，计时不依赖命名或导入成功。
 状态更新和 events 追加在同一 SQLite 事务。事件单调序号、版本、job ID、类型，不保存标题/URL/原始错误。消费者持久 cursor，以 at-least-once 消费和 ID 去重。重放不重新执行命令。
@@ -31,7 +31,7 @@ jobs 独立保存 download/import/refresh/discovery/seed 状态。download compl
 
 配置严格 JSON，URL/路径/凭据从部署配置读取；样例无凭据。错误用固定代码，日志只允许事件码/job ID。HTTP 客户端限制响应、超时、禁止重定向，避免认证头/秘密 URL 泄漏。
 SQLite 本地磁盘 WAL、foreign_keys、busy_timeout；单连接串行事务。数据库目录权限 0700、文件 0600。配置读取不自动访问网络。
-不造调度平台。首版库提供一次 Tick，CLI 只检查配置；常驻 poller、鉴权 API listener 和真实 NAS 验收后置。
+不造调度平台。CLI 默认只检查配置；显式 -run 启动 RSS 和 job 两条循环，无 HTTP listener。订阅预约/失败退避、job 尝试预约/失败退避都持久化；做种截止检查绕过导入退避。鉴权管理 API 和真实 NAS 验收仍后置。
 
 ## 验证门槛
 
@@ -39,8 +39,19 @@ make verify = 格式、go vet、race tests、build。fixture 覆盖重复 RSS/�
 
 ## 上游依据与首版限制
 
-qB adapter 使用 [官方 5.x API](https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-%28qBittorrent-5.0%29) 的 add/info/files/stop；4.x 兼容后置。add 显式 savepath，文件查询校验 save_path 与配置一致；qB 容器和本服务必须使用相同下载路径。Emby 按 [官方浏览 API](https://dev.emby.media/doc/restapi/Browsing-the-Library.html) 查询并精确核对 Path，本服务和 Emby 也须同路径挂载。实际版本兼容性与认证过期刷新尚未在真实服务验收。
+qB adapter 使用 [官方 5.x API](https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-%28qBittorrent-5.0%29) 的 add/info/files/stop；4.x 兼容后置。add 显式 savepath，文件查询校验 save_path 与配置一致；qB 容器和本服务必须使用相同下载路径。Emby 按 [官方浏览 API](https://dev.emby.media/doc/restapi/Browsing-the-Library.html) 查询并精确核对 Path，本服务和 Emby 也须同路径挂载。实际版本兼容性尚未在真实服务验收；当前 qB 只在启动时使用部署者环境变量登录，session 过期会记录失败并退避，需要重启重新登录，自动续期后置。
 
 只处理单视频 torrent 的最小闭环，多视频进入待确认且当前不支持整体批准，不能只导入其中一个后误标完成。字幕仅同 stem 的有限格式，扫描上限 4096 项。人工确认预先检查目标冲突，执行仍以独占 linkat 作最终仲裁。Linux 需要支持 openat2（5.6+）和 /proc/self/fd；不支持时 fail closed。
 
 复核补充：源和逐层目标父目录 fsync 后才提交 imported；SQLite synchronous=FULL。哈希/链接响应 context 取消。批次先扫已知完成 job 的 stop deadline。时钟回拨不重算 completed_at/stop_at，不让 stopped 变回 seeding；进程离线和宿主错误时钟不承诺实时截止。详见 REVIEW.md。
+
+
+## 来源与 daemon 决策
+
+- `.torrent` 解析依据 [BEP3](https://www.bittorrent.org/beps/bep_0003.html)，保留 info 原始字节。拒绝非规范 bencode、超过 32 层/50,000 节点、重复 key、路径穿越/符号链接元数据、v2、webseed；最多 4096 个文件，核对分片数量。上传已验证 metainfo 字节，不把秘密 URL 交给 qB。
+- SQLite schema v2 在事务内为 v1 增加 torrent_payloads/source_state/source_events，已有 job/events 不改。未知更高版本拒绝打开。新连接从 DSN 恢复 foreign_keys、busy_timeout、synchronous。torrent blob 可含 tracker URL，因此数据库/备份也视作私密资料。
+- 默认 feed 间隔 600 秒（配置 60–86400），job tick 15 秒（1–300），HTTP 超时 10 秒（1–60），来源请求最小间隔 250ms（100–60000）。RSS 默认 2MiB、torrent 8MiB，最大都 8MiB；最多 200 个 feed 项（1–1000）。最多 100 个订阅。
+- 发请求前预约下一次尝试。来源失败指数退避到 max(轮询间隔,1小时)；job 失败退避最多 1 小时。取消保留已预约时间，重启遵守它。时钟回拨不提前轮询或重算做种 deadline；时钟跳变/进程离线不承诺真实时间精度。
+- RSS 与 job 各一条串行循环，慢来源 HTTP 不占用 job 循环。一个 job 的大文件哈希仍可能延长下一批轮询；已知 deadline 在每批最前处理，不提供硬实时保证。哈希支持 context 取消，但不可能中断内核永久挂起的磁盘 I/O。
+- flock 防止两个 daemon 执行相同数据库的外部副作用。SIGINT/SIGTERM 取消在途 HTTP 和用户态哈希，等待循环退出后释放 fd/SQLite/锁。外部效果不回滚，依靠可重试操作恢复。
+- 管理 HTTP、Discord、模型调用均未启用；人工 Propose/Confirm 目前为内部库 API，尚无操作端 UI/CLI。

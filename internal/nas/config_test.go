@@ -84,12 +84,48 @@ func TestRejectFutureSchema(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if _, e = s.db.Exec("PRAGMA user_version=2"); e != nil {
+	if _, e = s.db.Exec("PRAGMA user_version=3"); e != nil {
 		t.Fatal(e)
 	}
 	s.Close()
 	if s, e = OpenStore(p); e == nil {
 		s.Close()
 		t.Fatal("future schema overwritten")
+	}
+}
+
+func TestSchemaMigrationAndReopenedConnectionPragmas(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "state.db")
+	s, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := s.Ingest(ctx, "fixture", "guid", fixtureHash, "magnet:?xt=urn:btih:"+fixtureHash, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.db.Exec("DROP TABLE source_events; DROP TABLE source_state; DROP TABLE torrent_payloads; PRAGMA user_version=1;"); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	s, err = OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if _, err = s.Get(ctx, id); err != nil {
+		t.Fatal("migration lost job", err)
+	}
+	if ok, err := s.ClaimSource(ctx, "fixture", 1000, 60); err != nil || !ok {
+		t.Fatal("migration missing source schema", err)
+	}
+	// 强制回收连接，验证连接级 PRAGMA 不依赖首次 OpenStore 的偶然连接。
+	s.db.SetMaxIdleConns(0)
+	for name, want := range map[string]int{"foreign_keys": 1, "synchronous": 2, "busy_timeout": 5000} {
+		var got int
+		if err = s.db.QueryRow("PRAGMA " + name).Scan(&got); err != nil || got != want {
+			t.Fatal(name, got, err)
+		}
 	}
 }

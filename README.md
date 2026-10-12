@@ -1,19 +1,21 @@
 # asuka-nas
 
-独立 NAS 番剧入库服务：Go 1.26.9 + SQLite，qBittorrent 下载、同文件系统硬链接、Emby 刷新和发现确认，正常流程不依赖模型。
+Go 1.26.9 + SQLite 的独立 NAS 番剧入库服务。qBittorrent 下载、同文件系统硬链接、Emby 刷新与发现确认，正常流程不依赖模型。
 
-当前为 **fake 集成验证阶段**，没有生产 daemon 或 Discord。不要部署到真实 NAS。
+已实现 RSS/.torrent HTTP 适配和常驻轮询，**只用本地 fixtures 验证，尚未进行真实服务或 NAS 部署验收**。无 HTTP 管理端口，无 Discord。
 
-- [设计](docs/DESIGN.md)
-- [agent v1 契约](docs/API.md)
-- [进度与限制](docs/STATUS.md)
+- [设计与运行边界](docs/DESIGN.md)
+- [agent v1 契约（尚无 listener）](docs/API.md)
+- [当前交付和限制](docs/STATUS.md)
+- [复核材料与测试名](docs/REVIEW.md)
 
 ```sh
 make verify
 go run ./cmd/asuka-nas -config config.example.json
 ```
 
-配置检查不连接任何服务。部署凭据将由用户配置，不在仓库内生成。
+默认仅检查配置，不联网。只有显式 `-run` 才启动轮询；本轮未对真实服务运行此模式。
+订阅配置写在 `subscriptions` 数组，每项包含 `id`、`url`，以及可选 `enclosure_origins`（完整 scheme://host[:port]）；示例为空数组。带 token 的 RSS URL 只放用户本地配置，不提交或写日志。
+部署者已有凭据通过 `ASUKA_NAS_QB_USERNAME`、`ASUKA_NAS_QB_PASSWORD`、`ASUKA_NAS_EMBY_TOKEN` 提供；本项目不生成凭据。qB 5.x、下载器和本服务须相同下载挂载路径，Emby 和本服务须相同媒体挂载路径。
 
-如环境中 `go` 不是实际 Go 工具链，设置 `GO_BINARY=/absolute/path/to/go1.26.9/bin/go` 后运行 `scripts/dev.sh`。
-Dockerfile 仅提供构建骨架，当前容器入口仍是配置检查。完整限制和验证证据见进度文档。
+如 `go` 不是实际工具链，设置 `GO_BINARY=/absolute/path/to/go1.26.9/bin/go` 后运行 `scripts/dev.sh`。Dockerfile 的默认命令仍仅做配置检查；镜像尚未构建/部署验收。

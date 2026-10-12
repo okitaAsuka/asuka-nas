@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	_ "modernc.org/sqlite"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -15,6 +16,9 @@ import (
 
 // Job 的各状态正交，停止做种不能受导入失败影响。
 type Job struct {
+	HasTorrent  bool     `json:"has_torrent,omitempty"`
+	Attempts    int      `json:"attempts,omitempty"`
+	NextAttempt int64    `json:"next_attempt,omitempty"`
 	Sources     []string `json:"sources,omitempty"`
 	ID          string   `json:"id"`
 	Version     int      `json:"version"`
@@ -70,7 +74,14 @@ func OpenStore(path string) (*Store, error) {
 	if e = os.Chmod(path, 0600); e != nil {
 		return nil, errors.New("database_permissions")
 	}
-	db, e := sql.Open("sqlite", path)
+	// 每个新连接都恢复安全 PRAGMA，连接因取消/错误重建时也不丢约束。
+	dsn := url.URL{Scheme: "file", Path: path}
+	q := url.Values{}
+	q.Add("_pragma", "foreign_keys(1)")
+	q.Add("_pragma", "busy_timeout(5000)")
+	q.Add("_pragma", "synchronous(FULL)")
+	dsn.RawQuery = q.Encode()
+	db, e := sql.Open("sqlite", dsn.String())
 	if e != nil {
 		return nil, e
 	}
@@ -80,17 +91,20 @@ func OpenStore(path string) (*Store, error) {
 		db.Close()
 		return nil, e
 	}
-	if schema > 1 {
+	if schema > 2 {
 		db.Close()
 		return nil, errors.New("unsupported_schema_version")
 	}
 
-	_, e = db.Exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
+	_, e = db.Exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; BEGIN;
  CREATE TABLE IF NOT EXISTS subscriptions(id TEXT PRIMARY KEY);
  CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY, hash TEXT UNIQUE NOT NULL, version INTEGER NOT NULL, body TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS resources(subscription TEXT NOT NULL REFERENCES subscriptions(id), guid TEXT NOT NULL, job_id TEXT NOT NULL REFERENCES jobs(id), PRIMARY KEY(subscription,guid));
  CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY AUTOINCREMENT, schema_version INTEGER NOT NULL DEFAULT 1, job_id TEXT NOT NULL REFERENCES jobs(id), kind TEXT NOT NULL, created_at INTEGER NOT NULL);
- PRAGMA user_version=1;`)
+ CREATE TABLE IF NOT EXISTS torrent_payloads(hash TEXT PRIMARY KEY,data BLOB NOT NULL);
+ CREATE TABLE IF NOT EXISTS source_state(id TEXT PRIMARY KEY REFERENCES subscriptions(id),next_poll INTEGER NOT NULL,failures INTEGER NOT NULL DEFAULT 0,error_code TEXT NOT NULL DEFAULT '');
+ CREATE TABLE IF NOT EXISTS source_events(id INTEGER PRIMARY KEY AUTOINCREMENT,subscription TEXT NOT NULL REFERENCES subscriptions(id),kind TEXT NOT NULL,created_at INTEGER NOT NULL);
+ PRAGMA user_version=2; COMMIT;`)
 	if e != nil {
 		db.Close()
 		return nil, e
@@ -103,6 +117,19 @@ func (s *Store) Close() error { return s.db.Close() }
 
 // Ingest 原子去重和追加事件，GUID 与 torrent hash 都有唯一约束。
 func (s *Store) Ingest(ctx context.Context, subscription, guid, hash, magnet string, days int) (string, error) {
+	return s.ingest(ctx, subscription, guid, hash, magnet, nil, days)
+}
+
+// IngestTorrent 原子保存完整 metainfo，重启后无需再次抓取秘密 enclosure URL。
+func (s *Store) IngestTorrent(ctx context.Context, subscription, guid, hash string, payload []byte, days int) (string, error) {
+	actual, err := TorrentHash(payload)
+	if err != nil || actual != hash {
+		return "", errors.New("torrent_invalid")
+	}
+	return s.ingest(ctx, subscription, guid, hash, "", payload, days)
+}
+
+func (s *Store) ingest(ctx context.Context, subscription, guid, hash, magnet string, payload []byte, days int) (string, error) {
 	if subscription == "" || guid == "" || days < 0 || days > 7 {
 		return "", errors.New("invalid_resource")
 	}
@@ -121,7 +148,7 @@ func (s *Store) Ingest(ctx context.Context, subscription, guid, hash, magnet str
 	}
 	sum := sha256.Sum256([]byte(hash))
 	id = hex.EncodeToString(sum[:16])
-	j := Job{ID: id, Version: 1, Hash: hash, Magnet: magnet, Download: "pending", Import: "pending", Refresh: "pending", Discovery: "pending", Seed: "pending", SeedDays: days}
+	j := Job{ID: id, Version: 1, Hash: hash, Magnet: magnet, Download: "pending", Import: "pending", Refresh: "pending", Discovery: "pending", Seed: "pending", SeedDays: days, HasTorrent: len(payload) > 0}
 	b, e := json.Marshal(j)
 	if e != nil {
 		return "", e
@@ -134,6 +161,11 @@ func (s *Store) Ingest(ctx context.Context, subscription, guid, hash, magnet str
 		return "", e
 	}
 	n, _ := r.RowsAffected()
+	if n == 1 && len(payload) > 0 {
+		if _, e = tx.ExecContext(ctx, "INSERT INTO torrent_payloads(hash,data) VALUES(?,?)", hash, payload); e != nil {
+			return "", e
+		}
+	}
 	if n == 1 {
 		if _, e = tx.ExecContext(ctx, "INSERT INTO events(job_id,kind,created_at) VALUES(?,?,?)", id, "resource_seen", time.Now().Unix()); e != nil {
 			return "", e
@@ -221,4 +253,26 @@ func (s *Store) Events(ctx context.Context, after int64) ([]Event, error) {
 		result = append(result, v)
 	}
 	return result, rows.Err()
+}
+
+// Torrent 返回已验证的元数据；不会返回或重新抓取订阅 URL。
+func (s *Store) Torrent(ctx context.Context, hash string) ([]byte, error) {
+	var b []byte
+	err := s.db.QueryRowContext(ctx, "SELECT data FROM torrent_payloads WHERE hash=?", hash).Scan(&b)
+	return b, err
+}
+
+// ResourceSeen 避免重复 feed 项再次下载 metainfo。
+func (s *Store) ResourceSeen(ctx context.Context, subscription, guid string) (bool, error) {
+	var one int
+	err := s.db.QueryRowContext(ctx, "SELECT 1 FROM resources WHERE subscription=? AND guid=?", subscription, guid).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+func digestString(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
 }

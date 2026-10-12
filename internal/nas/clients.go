@@ -1,11 +1,13 @@
 package nas
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -33,12 +35,20 @@ func (h *HTTPBoundary) call(ctx context.Context, method, endpoint string, form u
 	if form != nil {
 		body = strings.NewReader(form.Encode())
 	}
+	contentType := ""
+	if form != nil {
+		contentType = "application/x-www-form-urlencoded"
+	}
+	return h.request(ctx, method, endpoint, body, contentType)
+}
+
+func (h *HTTPBoundary) request(ctx context.Context, method, endpoint string, body io.Reader, contentType string) ([]byte, error) {
 	req, e := http.NewRequestWithContext(ctx, method, h.base+endpoint, body)
 	if e != nil {
 		return nil, errors.New("upstream_request_failed")
 	}
-	if form != nil {
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 		req.Header.Set("Referer", h.base+"/")
 	}
 	if h.key != "" {
@@ -69,6 +79,7 @@ type TorrentStatus struct {
 // Downloader 是 qBittorrent 边界，不提供删除接口。
 type Downloader interface {
 	Add(context.Context, string) error
+	AddTorrent(context.Context, []byte) error
 	Status(context.Context, string) (TorrentStatus, error)
 	Files(context.Context, string) ([]string, error)
 	Stop(context.Context, string) error
@@ -279,3 +290,39 @@ func ParseRSS(r io.Reader) ([]Resource, error) {
 	}
 	return result, nil
 }
+
+// AddTorrent 用 multipart 上传已校验 metainfo，不把秘密 URL 转交 qB。
+func (q *QB) AddTorrent(ctx context.Context, payload []byte) error {
+	if !filepath.IsAbs(q.Downloads) || filepath.Clean(q.Downloads) != q.Downloads {
+		return errors.New("invalid_download_root")
+	}
+	if _, err := TorrentHash(payload); err != nil {
+		return err
+	}
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("savepath", q.Downloads); err != nil {
+		return errors.New("qb_request_failed")
+	}
+	part, err := writer.CreateFormFile("torrents", "resource.torrent")
+	if err != nil {
+		return errors.New("qb_request_failed")
+	}
+	if _, err = part.Write(payload); err != nil {
+		return errors.New("qb_request_failed")
+	}
+	if writer.Close() != nil {
+		return errors.New("qb_request_failed")
+	}
+	b, err := q.request(ctx, "POST", "/api/v2/torrents/add", &body, writer.FormDataContentType())
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(string(b)) != "Ok." {
+		return errors.New("qb_add_failed")
+	}
+	return nil
+}
+
+// SetTimeout 在启动阶段设置有界请求超时，不在请求期间修改。
+func (h *HTTPBoundary) SetTimeout(timeout time.Duration) { h.client.Timeout = timeout }

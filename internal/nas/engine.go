@@ -109,7 +109,20 @@ func (e *Engine) tick(ctx context.Context, id string, now time.Time) error {
 		}
 	}
 	if j.Download == "requesting" {
-		if err = e.QB.Add(ctx, j.Magnet); err != nil {
+		if j.HasTorrent {
+			payload, loadErr := e.Store.Torrent(ctx, j.Hash)
+			if loadErr != nil {
+				return e.fail(ctx, &j, "torrent_payload_unavailable")
+			}
+			hash, checkErr := TorrentHash(payload)
+			if checkErr != nil || hash != j.Hash {
+				return e.fail(ctx, &j, "torrent_payload_invalid")
+			}
+			err = e.QB.AddTorrent(ctx, payload)
+		} else {
+			err = e.QB.Add(ctx, j.Magnet)
+		}
+		if err != nil {
 			return e.fail(ctx, &j, "download_add_failed")
 		}
 		j.Download = "requested"

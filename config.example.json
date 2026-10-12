@@ -4,5 +4,13 @@
   "library": "/media/library",
   "seed_days": 7,
   "qb_url": "http://qbittorrent:8080",
-  "emby_url": "http://emby:8096"
+  "emby_url": "http://emby:8096",
+  "subscriptions": [],
+  "poll_seconds": 600,
+  "tick_seconds": 15,
+  "request_timeout_seconds": 10,
+  "fetch_interval_ms": 250,
+  "rss_max_bytes": 2097152,
+  "torrent_max_bytes": 8388608,
+  "max_items": 200
 }

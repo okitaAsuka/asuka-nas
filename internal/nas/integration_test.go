@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,6 +19,8 @@ const fixtureHash = "0123456789abcdef0123456789abcdef01234567"
 
 // fixture 所有 HTTP 只在回环 fake 服务，媒体文件只在 t.TempDir。
 type fixture struct {
+	hash                         string
+	multipartAdds                int
 	wrongRoot                    bool
 	t                            *testing.T
 	mu                           sync.Mutex
@@ -35,7 +38,7 @@ type fixture struct {
 
 func newFixture(t *testing.T, name string, days int) *fixture {
 	t.Helper()
-	f := &fixture{t: t, root: t.TempDir(), name: name, completed: 1000}
+	f := &fixture{t: t, root: t.TempDir(), name: name, completed: 1000, hash: fixtureHash}
 	f.downloads = filepath.Join(f.root, "downloads")
 	f.library = filepath.Join(f.root, "library")
 	f.db = filepath.Join(f.root, "state.db")
@@ -54,15 +57,17 @@ func newFixture(t *testing.T, name string, days int) *fixture {
 		t.Fatal(e)
 	}
 	f.reopen()
-	ids, e := f.engine.IngestRSS(context.Background(), "fixture", strings.NewReader(f.rss()), days)
-	if e != nil || len(ids) != 1 {
-		t.Fatal(ids, e)
+	if days >= 0 {
+		ids, e := f.engine.IngestRSS(context.Background(), "fixture", strings.NewReader(f.rss()), days)
+		if e != nil || len(ids) != 1 {
+			t.Fatal(ids, e)
+		}
 	}
 	t.Cleanup(func() { f.server.Close(); f.files.Close(); f.store.Close() })
 	return f
 }
 func (f *fixture) rss() string {
-	return `<rss><channel><item><guid>one</guid><title>&lt;script&gt;untrusted secret&lt;/script&gt;</title><enclosure url="magnet:?xt=urn:btih:` + fixtureHash + `"/></item></channel></rss>`
+	return `<rss><channel><item><guid>one</guid><title>&lt;script&gt;untrusted secret&lt;/script&gt;</title><enclosure url="magnet:?xt=urn:btih:` + f.hash + `"/></item></channel></rss>`
 }
 func (f *fixture) reopen() {
 	f.t.Helper()
@@ -104,9 +109,32 @@ func (f *fixture) handle(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			f.t.Error("add method")
 		}
-		r.ParseForm()
-		if !strings.Contains(r.Form.Get("urls"), fixtureHash) {
-			f.t.Error("hash missing")
+		if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/") {
+			if err := r.ParseMultipartForm(8 * 1024 * 1024); err != nil {
+				f.t.Error(err)
+				return
+			}
+			defer r.MultipartForm.RemoveAll()
+			file, _, err := r.FormFile("torrents")
+			if err != nil {
+				f.t.Error(err)
+				return
+			}
+			defer file.Close()
+			b, err := io.ReadAll(file)
+			hash, parseErr := TorrentHash(b)
+			if err != nil || parseErr != nil || hash != f.hash {
+				f.t.Error("invalid torrent upload")
+			}
+			f.multipartAdds++
+		} else {
+			r.ParseForm()
+			if !strings.Contains(r.Form.Get("urls"), f.hash) {
+				f.t.Error("hash missing")
+			}
+		}
+		if r.Form.Get("savepath") != f.downloads {
+			f.t.Error("savepath mismatch")
 		}
 		f.adds++
 		fmt.Fprint(w, "Ok.")
@@ -115,7 +143,7 @@ func (f *fixture) handle(w http.ResponseWriter, r *http.Request) {
 		if f.wrongRoot {
 			root = "/wrong-root"
 		}
-		json.NewEncoder(w).Encode([]any{map[string]any{"hash": fixtureHash, "progress": 1, "completion_on": f.completed, "save_path": root}})
+		json.NewEncoder(w).Encode([]any{map[string]any{"hash": f.hash, "progress": 1, "completion_on": f.completed, "save_path": root}})
 	case "/api/v2/torrents/files":
 		if f.failFiles {
 			w.WriteHeader(503)
@@ -124,7 +152,7 @@ func (f *fixture) handle(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode([]any{map[string]any{"name": f.name, "progress": 1}})
 	case "/api/v2/torrents/stop":
 		r.ParseForm()
-		if r.Method != "POST" || r.Form.Get("hashes") != fixtureHash {
+		if r.Method != "POST" || r.Form.Get("hashes") != f.hash {
 			f.t.Error("unsafe stop")
 		}
 		f.stops++
