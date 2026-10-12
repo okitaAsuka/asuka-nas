@@ -23,6 +23,9 @@ func main() {
 
 // 默认只校验；只有显式 -run 才访问部署配置中的服务。
 func run() error {
+	if len(os.Args) > 1 && os.Args[1] == "rules" {
+		return rulesCLI(os.Args[2:])
+	}
 	path := flag.String("config", "config.json", "deployment configuration")
 	execute := flag.Bool("run", false, "run the local polling daemon (explicit opt-in)")
 	flag.Parse()

@@ -251,7 +251,7 @@ func (e *Emby) Discover(ctx context.Context, p string) (bool, error) {
 var btih = regexp.MustCompile(`^[0-9a-fA-F]{40}$`)
 
 // Resource 忽略 RSS 标题；来源和 GUID 只参与本地去重。
-type Resource struct{ GUID, Hash, Magnet string }
+type Resource struct{ GUID, Hash, Magnet, Title string }
 
 // ParseRSS 首版支持含 40 位 BTIH magnet；不访问 enclosure 地址。
 func ParseRSS(r io.Reader) ([]Resource, error) {
@@ -263,6 +263,7 @@ func ParseRSS(r io.Reader) ([]Resource, error) {
 		Channel struct {
 			Items []struct {
 				GUID      string `xml:"guid"`
+				Title     string `xml:"title"`
 				Link      string `xml:"link"`
 				Enclosure struct {
 					URL string `xml:"url,attr"`
@@ -288,9 +289,12 @@ func ParseRSS(r io.Reader) ([]Resource, error) {
 		if !strings.HasPrefix(xt, "urn:btih:") || !btih.MatchString(hash) {
 			return nil, errors.New("rss_invalid_infohash")
 		}
-		// 丢弃显示标题和任意 tracker 参数，避免 RSS 向下载器注入未知 URL。
+		// 保留有界标题供本地命名，丢弃任意 tracker 参数，避免 RSS 向下载器注入未知 URL。
 		hash = strings.ToLower(hash)
-		result = append(result, Resource{i.GUID, hash, "magnet:?xt=urn:btih:" + hash})
+		if len(i.Title) > TitleLimit {
+			return nil, errors.New("title_too_large")
+		}
+		result = append(result, Resource{i.GUID, hash, "magnet:?xt=urn:btih:" + hash, i.Title})
 	}
 	return result, nil
 }

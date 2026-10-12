@@ -30,11 +30,11 @@ Bencode fuzz 两轮各 5 秒：52,364 与 56,171 次执行，无崩溃（最后�
 - Mikan 格式由本地 RSS/enclosure fixtures 验证，尚无真实站点/具体部署兼容验收。
 - qB 401/403 触发最多一次重新登录和一次原请求重放；全部认证尝试冷却 60 秒，500 等非认证错误不登录。凭据每次从配置引用取，不保存在客户端或日志。4.x 兼容后置。
 - Emby 精确 Path 查询尚未做真实版本/分页验收；HTTP 200 从不等于已发现。
-- 多视频 torrent 会解析/下载但不自动部分入库，进入待确认；整体多视频方案未实现。命名只覆盖严格 SxxExx，v2/webseed/复杂字幕不支持。
+- 多视频 torrent 会解析/下载但不自动部分入库，进入待确认；整体多视频方案未实现。命名能力现见下文 N1；v2/webseed/复杂字幕不支持。
 - Propose/Confirm 和事件游标为内部库 API，HTTP 管理接口/鉴权/UI/Discord 仍仅契约或未实现。
 - 根目录必须由受信任宿主维护。不能防止有权限的进程搬走已打开父目录，不能隔离源文件恶意并发内容写入；不宣称多租户安全。
 - 断电只验证 fsync/事务顺序与错误注入，未做真实断电实验。离线、系统时钟错误、长磁盘 I/O 不保证硬实时停止。大文件哈希可能延长下一批 job 轮询。
-- schema v1→v2 只用于此未部署项目，不代表已授权生产数据库迁移。
+- schema v1→v2→v3 只用于此未部署项目，不代表已授权生产数据库迁移。
 
 ## 远端与交付
 
@@ -52,3 +52,13 @@ Bencode fuzz 两轮各 5 秒：52,364 与 56,171 次执行，无崩溃（最后�
 测试新增：QBSessionRecoveryAndReplayLimit、QBAuthFailuresDoNotLoopOrLeak、QBMultipartAuthReplayPreservesExactBody、WholeManifestBlocksCollectionsAndAmbiguousSubtitles、ManifestExcludesOtherJobsSidecars、IdleJobsAndSubscriptionsDoNotWriteOrRequest、DownloadRootMustMatchAndFilesMustExistLocally。
 
 本轮到此停止扩功能。Library 备份仅从 main+开发分支生成 bundle，不包含 git config、未跟踪部署配置、缓存、数据库或工具链；上传结果另在交付回复中记录。
+
+## N1 已完成（2026-10-12，覆盖上文旧命名限制）
+
+人工规则 v1：manual provider、本地稳定 series_id、显式 custom order、订阅/字幕组作用域 alias、人工季号与相对媒体目录。草稿/不可变版本/启停审计；本地 rules add/preview/enable/disable/replan/parse，和 daemon 共用实例锁，无远端操作。
+
+schema v3 保留有界 RSS 原标题及来源关系、命名规则与历史计划。规则优先的单集通路支持 [02]/[03]，标题/文件季集矛盾及多来源映射冲突阻塞；低置信度不猜季号。原严格 SxxExx 通路保留，安全文件操作、旁车、做种计时和 Emby 状态边界不变。执行前原子冻结，未执行旧计划显式失效，执行后的规则变更不迁移历史；晚到来源冲突单独报告。
+
+N3 仅纯解析/预览：显式第 4 季、相对 1–11、总第 67–77 和有界 MapAbsolute 函数，不连接合集执行器。东京复仇者篇章示例不赋予季号。完整用法与限制见 NAMING.md；独立阶段复核记录见 REVIEW.md。
+
+本轮真实 Go 1.26.9 make verify 全通过：53 顶层测试及子测试、race、vet、build；git diff --check 通过。未改 asuka-agent、未访问真实服务、未重试远端、未合并或部署。GitHub 既有权限阻塞及缺少真实 CI 链接不变。后续持久合集逐文件计划、gateway 确定性通知留待下一小里程碑。

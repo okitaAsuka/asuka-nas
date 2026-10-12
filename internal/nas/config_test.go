@@ -65,15 +65,15 @@ func TestStoreAtomicReplay(t *testing.T) {
 	}
 	defer s.Close()
 	ev, e := s.Events(ctx, 0)
-	if e != nil || len(ev) != 2 {
+	if e != nil || len(ev) != 4 {
 		t.Fatal(ev, e)
 	}
 	tail, e := s.Events(ctx, ev[0].ID)
-	if e != nil || len(tail) != 1 {
+	if e != nil || len(tail) != 3 {
 		t.Fatal(tail, e)
 	}
 	j, e = s.Get(ctx, id)
-	if e != nil || j.Download != "requested" || j.Version != 2 {
+	if e != nil || j.Download != "requested" || j.Version != 4 {
 		t.Fatal(j, e)
 	}
 }
@@ -84,7 +84,7 @@ func TestRejectFutureSchema(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if _, e = s.db.Exec("PRAGMA user_version=3"); e != nil {
+	if _, e = s.db.Exec("PRAGMA user_version=4"); e != nil {
 		t.Fatal(e)
 	}
 	s.Close()

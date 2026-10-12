@@ -14,3 +14,5 @@ Discord、远程命名建议提交、鉴权 listener 和持久消费 cursor API 
 
 
 实现补充（无 HTTP listener）：`Store.SourceEvents(after)` 返回独立来源事件游标，字段 id/subscription/kind/created_at，kind 为 poll_succeeded/poll_failed。订阅 ID 是配置内非秘密标识；无 URL/错误原文。job 事件新增 attempt_started/retry_scheduled/retry_cleared。HTTP 路由和鉴权仍是契约，不应将内部方法当已部署接口。
+
+N1 内部契约：Job 增加 naming_epoch/context_version/checked_context；Plan 增加 rule_epoch/context_version/decision/rule_refs/started，digest 包含规则快照引用与来源版本，排除 approved/started 两个生命周期标记。新事件 source_context_added、source_context_checked、late_mapping_conflict、naming_retry_ready、plan_stale、plan_invalidated、import_started。plan_history 保存每个 plan_ready 的不可变完整方案。规则审计 naming_events 是独立递增游标表（本阶段无对外读取接口），只含 rule_id/revision/kind/created_at，kind 为 rule_drafted/rule_enabled/rule_disabled。相关本地 CLI 和边界见 NAMING.md；gateway 确定性通知仍待下一阶段实现。

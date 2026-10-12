@@ -30,7 +30,7 @@ func (e *Engine) IngestRSS(ctx context.Context, subscription string, r io.Reader
 	}
 	var ids []string
 	for _, r := range resources {
-		id, err := e.Store.Ingest(ctx, subscription, r.GUID, r.Hash, r.Magnet, days)
+		id, err := e.Store.IngestRelease(ctx, subscription, r.GUID, r.Hash, r.Magnet, nil, days, r.Title)
 		if err != nil {
 			return nil, err
 		}
@@ -151,6 +151,12 @@ func (e *Engine) tick(ctx context.Context, id string, now time.Time) error {
 			return err
 		}
 	}
+	if err = e.namingCheck(ctx, &j); err != nil {
+		return err
+	}
+	if j.BlockReason == "late_mapping_conflict" {
+		return nil
+	}
 	if j.Import == "pending" {
 		sources, err := e.QB.Files(ctx, j.Hash)
 		if err != nil {
@@ -158,6 +164,11 @@ func (e *Engine) tick(ctx context.Context, id string, now time.Time) error {
 		}
 		j.Sources = sources
 
+		j.NamingEpoch, err = e.Store.NamingEpoch(ctx)
+		if err != nil {
+			return err
+		}
+		j.CheckedContext = j.ContextVersion
 		video, reason := singleVideo(j.Sources)
 		if reason != "" {
 			j.Import = "needs_confirmation"
@@ -165,15 +176,15 @@ func (e *Engine) tick(ctx context.Context, id string, now time.Time) error {
 			j.BlockReason = reason
 			return e.Store.Save(ctx, &j, "needs_confirmation")
 		}
-		p, err := e.Files.PreviewManifest(ctx, video, j.Version+1, j.Sources)
+		p, err := e.namingPlan(ctx, &j, video)
 		if err != nil {
-			if err.Error() == "needs_confirmation" || err.Error() == "subtitle_mapping_ambiguous" {
-				j.Import = "needs_confirmation"
-				j.ErrorCode = err.Error()
-				j.BlockReason = err.Error()
-				return e.Store.Save(ctx, &j, "needs_confirmation")
+			if !namingBlock(err.Error()) {
+				return e.fail(ctx, &j, namingFailure(err.Error()))
 			}
-			return e.fail(ctx, &j, err.Error())
+			j.Import = "needs_confirmation"
+			j.ErrorCode = err.Error()
+			j.BlockReason = err.Error()
+			return e.Store.Save(ctx, &j, "needs_confirmation")
 		}
 		p.Approved = true
 		j.Plan = p
@@ -189,6 +200,7 @@ func (e *Engine) tick(ctx context.Context, id string, now time.Time) error {
 		if j.Plan == nil || !j.Plan.Approved {
 			return nil
 		}
+
 		// 先验证所有指纹再开始；单个链接与状态提交间崩溃靠同 inode 恢复。
 		for _, f := range j.Plan.Files {
 			fp, err := e.Files.FingerprintContext(ctx, f.Source)
@@ -197,6 +209,12 @@ func (e *Engine) tick(ctx context.Context, id string, now time.Time) error {
 			}
 			if fp != f.Fingerprint {
 				return e.fail(ctx, &j, "fingerprint_changed")
+			}
+		}
+		if !j.Plan.Started {
+			j.Plan.Started = true
+			if err = e.Store.Save(ctx, &j, "import_started"); err != nil {
+				return err
 			}
 		}
 		for _, f := range j.Plan.Files {
@@ -238,6 +256,7 @@ func (e *Engine) tick(ctx context.Context, id string, now time.Time) error {
 func PlanDigest(p *Plan) string {
 	copy := *p
 	copy.Approved = false
+	copy.Started = false
 	b, _ := json.Marshal(copy)
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
@@ -265,6 +284,9 @@ func (e *Engine) Propose(ctx context.Context, id, source, target string) (*Plan,
 	if err != nil {
 		return nil, err
 	}
+	if err = e.bindManualPlan(ctx, j, p); err != nil {
+		return nil, err
+	}
 	j.Plan = p
 	j.BlockReason = "awaiting_plan_confirmation"
 	j.Import = "needs_confirmation"
@@ -283,6 +305,12 @@ func (e *Engine) Confirm(ctx context.Context, id string, version int, digest str
 		return err
 	}
 	if j.Import != "needs_confirmation" || j.Plan == nil || j.Plan.Version != version || PlanDigest(j.Plan) != digest {
+		return errors.New("stale_plan")
+	}
+	if err = e.namingCheck(ctx, &j); err != nil {
+		return err
+	}
+	if j.BlockReason == "stale_plan" {
 		return errors.New("stale_plan")
 	}
 	for _, f := range j.Plan.Files {

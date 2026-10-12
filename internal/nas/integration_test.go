@@ -285,6 +285,7 @@ func TestRefreshRetryAndCrashAfterLink(t *testing.T) {
 		t.Fatal(e)
 	}
 	p.Approved = true
+	p.ContextVersion = j.ContextVersion
 	j.Plan = p
 	j.Download = "completed"
 	j.CompletedAt = 1000

@@ -139,6 +139,9 @@ func (e *Engine) RetryTick(ctx context.Context, now time.Time, base int) error {
 		if err != nil {
 			return err
 		}
+		if err = e.namingCheck(ctx, &j); err != nil {
+			return err
+		}
 		if j.NextAttempt > now.Unix() {
 			continue
 		}

@@ -1,7 +1,6 @@
 package nas
 
 import (
-	"bytes"
 	"context"
 	"encoding/xml"
 	"errors"
@@ -90,8 +89,9 @@ func (s *SourceClient) fetch(ctx context.Context, raw string, limit int64) ([]by
 	return b, nil
 }
 
-// feedEntry 丢弃标题和 HTML；GUID 缺失时以 enclosure 字符串的哈希作稳定标识。
+// feedEntry 保留有界不可信标题；GUID 缺失时以 enclosure 字符串的哈希作稳定标识。
 type feedEntry struct {
+	Title     string `xml:"title"`
 	GUID      string `xml:"guid"`
 	Link      string `xml:"link"`
 	Enclosure struct {
@@ -146,16 +146,22 @@ func (s *SourceClient) Poll(ctx context.Context, sub Subscription, store *Store,
 			return errors.New("source_store_failed")
 		}
 		if seen {
+			if err = store.AttachResourceTitle(ctx, sub.ID, guid, entry.Title); err != nil {
+				failures = append(failures, errors.New("source_store_failed"))
+			}
 			continue
 		}
-		if err = s.ingestEntry(ctx, base, sub, store, days, guid, raw); err != nil {
+		if err = s.ingestEntry(ctx, base, sub, store, days, guid, raw, entry.Title); err != nil {
 			failures = append(failures, err)
 		}
 	}
 	return errors.Join(failures...)
 }
 
-func (s *SourceClient) ingestEntry(ctx context.Context, base *url.URL, sub Subscription, store *Store, days int, guid, raw string) error {
+func (s *SourceClient) ingestEntry(ctx context.Context, base *url.URL, sub Subscription, store *Store, days int, guid, raw, title string) error {
+	if len(title) > TitleLimit {
+		return errors.New("title_too_large")
+	}
 	u, err := url.Parse(raw)
 	if err != nil {
 		return errors.New("rss_resource_invalid")
@@ -168,7 +174,7 @@ func (s *SourceClient) ingestEntry(ctx context.Context, base *url.URL, sub Subsc
 			return errors.New("rss_invalid_infohash")
 		}
 		hash = strings.ToLower(hash)
-		_, err = store.Ingest(ctx, sub.ID, guid, hash, "magnet:?xt=urn:btih:"+hash, days)
+		_, err = store.IngestRelease(ctx, sub.ID, guid, hash, "magnet:?xt=urn:btih:"+hash, nil, days, title)
 		if err != nil {
 			return errors.New("source_store_failed")
 		}
@@ -195,7 +201,7 @@ func (s *SourceClient) ingestEntry(ctx context.Context, base *url.URL, sub Subsc
 	if err != nil {
 		return err
 	}
-	_, err = store.IngestTorrent(ctx, sub.ID, guid, hash, bytes.Clone(b), days)
+	_, err = store.IngestRelease(ctx, sub.ID, guid, hash, "", b, days, title)
 	if err != nil {
 		return errors.New("source_store_failed")
 	}

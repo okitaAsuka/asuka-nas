@@ -188,3 +188,19 @@ internal/nas/files_test.go:func TestFileSafetyAndIdempotence(t *testing.T) {
 internal/nas/files_test.go:func TestStaleConfirmationAndSymlinkSidecar(t *testing.T) {
 internal/nas/files_test.go:func TestConflictDoesNotBlockSeedDeadline(t *testing.T) {
 internal/nas/files_test.go:func TestConfirmationRechecksConflict(t *testing.T) {
+
+## N1 单独复核（2026-10-12）
+
+完成实现后另做一次逐段人工自查（未委托第二审阅者）：规则解析/匹配、SQLite 事务、执行冻结、重试跳过条件、本地 CLI。发现并修复：
+- 空标题来源原先可能被忽略：现保存空上下文，参与跨订阅一致性判定。
+- 旧计划重规划后缺少完整记录：plan_history 在 plan_ready 同一事务保存不可变版本。
+- 无计划的合集阻塞遇 epoch 后可能反复写入：记录本次已检查的规则/来源版本，重复 tick 不写事件。
+- 多集连写 S01E02E03、S01E02-E03 和显式 S00 原先可能被误当单集/未知季：保守拒绝。
+- 导入开始前的来源/规则竞态：import_started 事务校验 epoch，加 job CAS 拒绝并发来源变化。
+- 外部文件错误保留固定诊断码，数据库等非命名错误不进入原文日志。
+
+行为证据：同一持久人工规则对不同 infohash 的 [02]/[03] 自动硬链接，重启不重新确认；字幕/文件安全保持原测试覆盖；不同来源映射、标题/文件矛盾、停用规则不可 fallback；晚到矛盾保留历史目标；新规则使未执行预览 stale，显式 replan 后生成新历史版本；import_started 后规则升级仍恢复旧目标；空标题不能绕过；事件触发器回滚验证 ingest 与规则启用事务原子性；CLI 草稿不自动启用、共用 daemon lock、解析预览不联网。
+
+最终验证：真实 Go 1.26.9，make verify（gofmt、vet、53 个顶层测试及子测试、race、build）通过；git diff --check 通过。所有网络仅 httptest，所有媒体仅临时目录。本轮未构建/运行 Docker、未尝试 GitHub、未部署。新增 golang.org/x/text 只用于 Unicode NFKC。
+
+剩余边界：N1 没有合集执行、绝对集数自动执行映射、冻结冲突解除或历史迁移、元数据 provider、模型、Discord/gateway 发信；命名规则不是任意 DSL。任意规则启停使所有未执行预览保守失效。此自查和模拟测试不等于第三方审计或真实部署验证。
