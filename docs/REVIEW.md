@@ -239,3 +239,7 @@ internal/nas/files_test.go:func TestConfirmationRechecksConflict(t *testing.T) {
 表驱动覆盖标记×分隔符、普通嵌入词对照、旧alias圆/方括号/年份/质量/HTML实体、启用与停用、结构布局、未知版本、数字语义不兼容；比较规则原文不变、冻结PlanDigest在新GUID/重启后不变。parser版本4，SQLite仍schema5，无迁移或历史重写。
 
 最终真实 Go1.26.9 make verify：101顶层测试及子测试、race、vet、build 全通过；git diff --check通过，原独立v3测试逐字节保持。未访问真实服务/GitHub、未修改asuka-agent、未合并或部署。等待外部独立复验，不宣称生产就绪。
+
+## 产品整链审查 P1：迁移前实例锁
+
+独立报告 PRODUCT_REVIEW.txt（Library 审查包 v4）复现第二实例在持锁失败前把 schema4 改5。统一 OpenLockedStore 先准备私有父目录、取 flock，再打开可写 SQLite/迁移；daemon 与 rules CLI 共用。真实子进程在另一个进程持锁时启动失败，断言 schema4、缺失的迁移表、哨兵内容保持不变。SIGTERM 原回归保持。其余产品矩阵与待接入项见 WEB_PLAN.md；底层测试通过不等于通知产品闭环。

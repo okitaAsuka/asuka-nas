@@ -46,15 +46,11 @@ func rulesCLI(args []string) error {
 	if e != nil {
 		return e
 	}
-	lock, e := nas.AcquireInstance(cfg.Database)
+	s, lock, e := nas.OpenLockedStore(cfg.Database)
 	if e != nil {
 		return e
 	}
 	defer lock.Close()
-	s, e := nas.OpenStore(cfg.Database)
-	if e != nil {
-		return e
-	}
 	defer s.Close()
 	ctx := context.Background()
 	switch action {

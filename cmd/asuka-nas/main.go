@@ -44,16 +44,12 @@ func run() error {
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	store, err := nas.OpenStore(cfg.Database)
-	if err != nil {
-		return err
-	}
-	defer store.Close()
-	lock, err := nas.AcquireInstance(cfg.Database)
+	store, lock, err := nas.OpenLockedStore(cfg.Database)
 	if err != nil {
 		return err
 	}
 	defer lock.Close()
+	defer store.Close()
 	files, err := nas.OpenFiles(cfg.Downloads, cfg.Library)
 	if err != nil {
 		return err
