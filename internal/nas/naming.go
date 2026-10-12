@@ -15,6 +15,7 @@ import (
 )
 
 const TitleLimit = 8192
+const TitleParserVersion = 3
 
 type EpisodeRange struct {
 	Start int `json:"start"`
@@ -34,27 +35,32 @@ func normalizeTitle(raw string) (string, error) {
 	if len(raw) > TitleLimit || !utf8.ValidString(raw) {
 		return "", errors.New("title_invalid")
 	}
-	s := norm.NFKC.String(html.UnescapeString(raw))
+	decoded := html.UnescapeString(raw)
+	// NFKC 前拒绝分数、上标等非十进制数字，不能让 02½ 变成 021/2。
+	for _, r := range decoded {
+		if unicode.Is(unicode.No, r) || unicode.Is(unicode.Nl, r) {
+			return "", errors.New("unsupported_episode_kind")
+		}
+	}
+	s := norm.NFKC.String(decoded)
 	for _, r := range s {
 		if unicode.Is(unicode.Cf, r) || (unicode.IsControl(r) && !unicode.IsSpace(r)) {
 			return "", errors.New("title_invalid")
 		}
 	}
-	s = strings.NewReplacer("～", "~", "–", "-", "—", "-", "〜", "~").Replace(s)
+	s = strings.NewReplacer("～", "~", "–", "-", "—", "-", "〜", "~", "【", "[", "】", "]", "〔", "[", "〕", "]", "「", "[", "」", "]", "(", "[", ")", "]").Replace(s)
 	return strings.Join(strings.Fields(s), " "), nil
 }
 
 var specialEpisode = regexp.MustCompile(`(?i)(?:\b(?:SP|OVA|OAD|NCOP|NCED|Special|PV)(?:[ ._-]*[0-9]+)?\b|特典|特别篇|特別篇|番外)`)
-var oversizedNumber = regexp.MustCompile(`(?i)(?:第[0-9]{3,}季|[0-9]{3,}(?:st|nd|rd|th)\b|S[0-9]{3,}E|S[0-9]+E[0-9]{4,}| - [0-9]{4,})`)
-var unsupportedNumber = regexp.MustCompile(`(?i)(?:(?: - [0-9]{1,3}|S[0-9]{1,2}E[0-9]{1,3}|总第\s*[0-9]{1,3})[.,:/_&+;][0-9]+|(?: - [0-9]{1,3}|S[0-9]{1,2}E[0-9]{1,3})[a-z]+|\[[0-9]{1,3}[.,:/_&+;][0-9]+|\[[0-9]{1,2}[a-z]+|总第[0-9]{4,})`)
 var aliasEpisodeBoundary = regexp.MustCompile(`(?i)^[ ._-]+S[0-9]{1,2}E[0-9]{1,3}(?:$|[ .\[])`)
 var numericGroup = regexp.MustCompile(`^[0-9]+(?:[~-][0-9]+)?$`)
 var bracketEpisode = regexp.MustCompile(`\[([0-9]{1,3})(?:[~\-]([0-9]{1,3}))?\]`)
 var dashEpisode = regexp.MustCompile(` - ([0-9]{1,3})(?:[~\-]([0-9]{1,3}))?(?:[\] .]|$)`)
 var absoluteEpisode = regexp.MustCompile(`总第\s*([0-9]{1,3})(?:[~\-]([0-9]{1,3}))?`)
 var multiEpisode = regexp.MustCompile(`(?i)S[0-9]+E[0-9]+(?:[-~+ ]*E[0-9]+|[-~+][0-9]+)`)
-var seasonEpisode = regexp.MustCompile(`(?i)S([0-9]{1,2})E([0-9]{1,3})(?:[^0-9]|$)`)
-var titleSeason = regexp.MustCompile(`(?i)(?:第([一二三四五六七八九十0-9]{1,2})季|([0-9]{1,2})(?:st|nd|rd|th)(?:\b|_))`)
+var seasonEpisode = regexp.MustCompile(`(?i)S([0-9]+)E([0-9]+)(?:[^0-9]|$)`)
+var titleSeason = regexp.MustCompile(`(?i)(?:第([一二三四五六七八九十0-9]+)季|([0-9]+)(?:st|nd|rd|th)(?:\b|_))`)
 
 func episodeRange(a, b string) (*EpisodeRange, error) {
 	start, _ := strconv.Atoi(a)
@@ -71,15 +77,18 @@ func episodeRange(a, b string) (*EpisodeRange, error) {
 // ParseTitle 只提取显式证据；篇章名不能推导季号，范围不能授权合集执行。
 func ParseTitle(raw string) (TitlePreview, error) {
 	s, err := normalizeTitle(raw)
-	p := TitlePreview{Normalized: s, ParserVersion: 2}
+	p := TitlePreview{Normalized: s, ParserVersion: TitleParserVersion}
 	if err != nil {
 		return p, err
+	}
+	if specialEpisode.MatchString(s) {
+		return p, errors.New("unsupported_episode_kind")
 	}
 	if multiEpisode.MatchString(s) {
 		return p, errors.New("collection_preview_only")
 	}
-	if oversizedNumber.MatchString(s) || unsupportedNumber.MatchString(s) {
-		return p, errors.New("unsupported_episode_kind")
+	if err = validateEpisodeTokens(s); err != nil {
+		return p, err
 	}
 	if strings.HasPrefix(s, "[") {
 		if i := strings.Index(s, "]"); i > 1 {
@@ -109,7 +118,7 @@ func ParseTitle(raw string) (TitlePreview, error) {
 	}
 	for _, m := range seasonEpisode.FindAllStringSubmatch(s, -1) {
 		season, _ := strconv.Atoi(m[1])
-		if season < 1 {
+		if season < 1 || season > 99 {
 			return p, errors.New("season_ambiguous")
 		}
 		r, e := episodeRange(m[2], "")
@@ -225,8 +234,8 @@ func aliasMatched(p TitlePreview, alias string) bool {
 			return true
 		}
 		if strings.HasPrefix(part, alias) {
-			tail := part[len(alias):]
-			if strings.HasPrefix(tail, " [") || strings.HasPrefix(tail, "[") || strings.HasPrefix(tail, " - ") || strings.HasPrefix(tail, "]") || aliasEpisodeBoundary.MatchString(tail) {
+			tail := strings.TrimLeft(part[len(alias):], ": ")
+			if strings.HasPrefix(tail, " [") || strings.HasPrefix(tail, "[") || strings.HasPrefix(tail, " - ") || strings.HasPrefix(tail, "- ") || strings.HasPrefix(tail, "]") || aliasEpisodeBoundary.MatchString(" "+tail) {
 				return true
 			}
 		}
@@ -246,7 +255,7 @@ func (r NamingRule) knownIdentity(subscription string, p TitlePreview) bool {
 			}
 			if strings.HasPrefix(part, a) {
 				tail := part[len(a):]
-				if len(tail) > 0 && strings.ContainsRune(" [] ._-", rune(tail[0])) {
+				if len(tail) > 0 && strings.ContainsRune(" [] ._-:", rune(tail[0])) {
 					return true
 				}
 			}

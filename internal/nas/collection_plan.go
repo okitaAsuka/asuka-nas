@@ -25,6 +25,9 @@ func manifestGroups(sources []string) ([]string, map[string][]string, error) {
 		if !local(src) || seen[src] {
 			return nil, nil, errors.New("invalid_file_manifest")
 		}
+		if err := releaseKind(src); err != nil {
+			return nil, nil, err
+		}
 		seen[src] = true
 		switch strings.ToLower(path.Ext(src)) {
 		case ".mkv", ".mp4":
@@ -75,7 +78,7 @@ func (e *Engine) collectionPlan(ctx context.Context, j *Job) (*Plan, error) {
 	}
 	j.NamingEpoch = epoch
 	j.CheckedContext = j.ContextVersion
-	p := &Plan{Version: j.Version + 1, ParserVersion: 2, RuleEpoch: epoch, ContextVersion: j.ContextVersion, Collection: true, Decisions: map[string]NamingDecision{}}
+	p := &Plan{Version: j.Version + 1, ParserVersion: TitleParserVersion, RuleEpoch: epoch, ContextVersion: j.ContextVersion, Collection: true, Decisions: map[string]NamingDecision{}}
 	episodes := map[int]bool{}
 	targets := map[string]bool{}
 	var first *NamingDecision

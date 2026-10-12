@@ -214,3 +214,15 @@ internal/nas/files_test.go:func TestConfirmationRechecksConflict(t *testing.T) {
 新增高价值故障：第5个硬链接成功、file_linked 事件插入失败，数据库保持 intended，重启同 inode 恢复；第7个文件权限错误，中间成功链接保留；file_intent 提交失败时对应文件完全未链接；最终 discovered 事务失败保留11视频发现进度，重启只提交一次最终事件；部分合集失败到7天截止仍停止做种。权限故障由文件边界注入，未宣称真实宿主权限测试。跨任务目标预约测试故意先插入一个不冲突目标再遇冲突，验证整事务回滚。
 
 最终：真实 Go 1.26.9 linux/amd64，make verify 的 gofmt/vet/78 个顶层测试及子测试/race/build 全通过；git diff --check 通过。FuzzTitleEvidenceBounds 5秒、2 workers、27,789 次执行，无崩溃。原独立审查不覆盖本次新增实现，尚无第二轮外部审查，也没有真实服务、NAS、断电或 Docker 运行验收。没有新依赖、模型、Discord、GitHub 重试、合并或部署；asuka-agent clean。
+
+## e4de255 独立复验修复（暂停扩功能）
+
+输入：Library libfile_4686f4abe4f881919c9c3feeddb7c84e v1（33062B）。保留 independent_v2_test.go / independent_v2_recovery_test.go 原始断言。修复前实际复现全部5类、11个失败实例；原跨进程预约/CAS、真实第5硬链接后退出恢复、部分 Emby 发现等对照仍通过。
+
+1. RSS 与所有 manifest 项统一特殊篇门禁，包含视频、字幕和辅助文件；有界/无界规则都不能忽略 SP/OVA/OAD 等标记。
+2. 规范化中统一中英括号、全角冒号；别名边界支持冒号后完整季集 token，已知身份但 scope 不明确仍阻塞。未采用无界子串匹配。
+3. NFKC 之前拒绝 Unicode No/Nl 数字（分数/上标等），避免改变数字语义；数字 token 先完整消费，只接受整数或整数范围，有限质量/年份和视频扩展名是明确例外。移除原来的后缀补丁黑名单；范围端点、小数和分数不能截断。解析器版本3。
+4. schema v5 在同一 sql.Tx 中调用运行时 reservePlanTx 回填旧计划；完全一致的目标/前缀冲突检查。错误回滚 DDL、状态、事件和 schema 版本，保留旧库。没有磁盘媒体操作。
+5. 旧无规则计划的证明数据放入 legacy_plan_evidence，不改 Plan 或其 digest。仅在计划/当前来源版本一致、目标季集可解析且全部保留标题语义相符时回填；否则标记 legacy_evidence_unresolved 并阻塞后续导入/媒体处理，保持已归档历史。相同或兼容语义的新 GUID 与证明数据比较，真正新矛盾仍阻塞。无证明不猜、不自动迁移媒体。
+
+新增表驱动覆盖有界/无界与 RSS/文件位置、SP/OVA等类别、括号/冒号类别、分数/上标/实体编码/范围端点；旧证据的存在/缺失/矛盾/晚到版本及摘要不变。保留原独立复验测试，不改变其断言。完整验证结果见本次交付，待外部独立复验；不宣称生产就绪。

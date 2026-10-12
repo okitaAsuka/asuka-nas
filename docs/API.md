@@ -19,3 +19,5 @@ N1 内部契约：Job 增加 naming_epoch/context_version/checked_context；Plan
 
 
 N3/N4 内部契约：Plan 新增 collection、decisions（逐视频决定）、manifest（所有源指纹）、manual（人工计划语义）、evidence（订阅与标题摘要），全部参与摘要与不可变历史。Store.FileExecutions(job,version) 返回序号/state/video/discovered；events 增加可空 plan_version/file_index，新增 file_intent/file_linked/video_discovered/mapping_conflict_cleared。最终 discovered 仅在所有视频确认后产生一次；HTTP/gateway/Discord 仍未实现。
+
+复验修复：schema v5 / parser v3；新增固定阻塞码与事件 legacy_evidence_unresolved。legacy_plan_evidence 仅补充可证明的旧计划语义，不改变对外 Plan digest。该阻塞下做种截止仍执行，导入与媒体确认暂停；已导入历史状态保持，不能当作当前 ready。

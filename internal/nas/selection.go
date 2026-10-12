@@ -13,6 +13,9 @@ func singleVideo(sources []string) (string, string) {
 		if !local(src) || seen[src] {
 			return "", "invalid_file_manifest"
 		}
+		if err := releaseKind(src); err != nil {
+			return "", err.Error()
+		}
 		seen[src] = true
 		switch strings.ToLower(path.Ext(src)) {
 		case ".mkv", ".mp4", ".avi", ".mov", ".m4v", ".ts", ".m2ts", ".webm", ".mpg", ".mpeg", ".wmv", ".flv", ".vob", ".iso", ".ogm":

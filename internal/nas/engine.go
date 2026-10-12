@@ -153,7 +153,7 @@ func (e *Engine) tick(ctx context.Context, id string, now time.Time) error {
 	if err = e.namingCheck(ctx, &j); err != nil {
 		return err
 	}
-	if j.BlockReason == "late_mapping_conflict" {
+	if j.BlockReason == "late_mapping_conflict" || j.BlockReason == "legacy_evidence_unresolved" {
 		return nil
 	}
 	if j.Import == "pending" {

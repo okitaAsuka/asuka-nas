@@ -2,6 +2,8 @@ package nas
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -85,13 +87,29 @@ func (s *Store) checkFrozenEvidence(ctx context.Context, j *Job) error {
 		}
 		return nil
 	}
+	manual, evidence := p.Manual, p.Evidence
+	if manual == nil && len(evidence) == 0 {
+		var b string
+		err := s.db.QueryRowContext(ctx, "SELECT body FROM legacy_plan_evidence WHERE job_id=? AND plan_version=?", j.ID, p.Version).Scan(&b)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return errors.New("legacy_evidence_unresolved")
+			}
+			return err
+		}
+		var proof legacyEvidence
+		if err = json.Unmarshal([]byte(b), &proof); err != nil {
+			return err
+		}
+		manual, evidence = proof.Manual, proof.Evidence
+	}
 	contexts, e := s.Contexts(ctx, j.ID)
 	if e != nil {
 		return e
 	}
 	known := map[ContextEvidence]bool{}
 	subs := map[string]bool{}
-	for _, c := range p.Evidence {
+	for _, c := range evidence {
 		known[c] = true
 		subs[c.Subscription] = true
 	}
@@ -102,7 +120,7 @@ func (s *Store) checkFrozenEvidence(ctx context.Context, j *Job) error {
 		if !subs[c.Subscription] {
 			return errors.New("source_mapping_unresolved")
 		}
-		if e = checkManualEvidence(p.Manual, c.Title); e != nil {
+		if e = checkManualEvidence(manual, c.Title); e != nil {
 			return e
 		}
 	}

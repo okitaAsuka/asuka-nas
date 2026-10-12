@@ -108,12 +108,22 @@ func OpenStore(path string) (*Store, error) {
 		db.Close()
 		return nil, e
 	}
-	if schema > 4 {
+	if schema > 5 {
 		db.Close()
 		return nil, errors.New("unsupported_schema_version")
 	}
 
-	migration := `PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; BEGIN;
+	if _, e = db.Exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;"); e != nil {
+		db.Close()
+		return nil, e
+	}
+	tx, e := db.Begin()
+	if e != nil {
+		db.Close()
+		return nil, e
+	}
+	defer tx.Rollback()
+	migration := `
  CREATE TABLE IF NOT EXISTS subscriptions(id TEXT PRIMARY KEY);
  CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY, hash TEXT UNIQUE NOT NULL, version INTEGER NOT NULL, body TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS resources(subscription TEXT NOT NULL REFERENCES subscriptions(id), guid TEXT NOT NULL, job_id TEXT NOT NULL REFERENCES jobs(id), PRIMARY KEY(subscription,guid));
@@ -135,18 +145,22 @@ func OpenStore(path string) (*Store, error) {
 	if schema < 4 {
 		migration += `ALTER TABLE events ADD COLUMN plan_version INTEGER;
  ALTER TABLE events ADD COLUMN file_index INTEGER;
- INSERT OR IGNORE INTO plan_history(job_id,version,body) SELECT id,json_extract(body,'$.plan.version'),json_extract(body,'$.plan') FROM jobs WHERE json_type(body,'$.plan')='object';
- INSERT INTO target_reservations(target,job_id,plan_version)
- SELECT json_extract(f.value,'$.target'),j.id,json_extract(j.body,'$.plan.version') FROM jobs j,json_each(j.body,'$.plan.files') f
- WHERE NOT EXISTS(SELECT 1 FROM target_reservations r WHERE r.target=json_extract(f.value,'$.target') AND r.job_id=j.id AND r.plan_version=json_extract(j.body,'$.plan.version'));
- INSERT OR IGNORE INTO file_execution(job_id,plan_version,file_index,state,video,discovered)
- SELECT j.id,json_extract(j.body,'$.plan.version'),CAST(f.key AS INTEGER),CASE WHEN json_extract(j.body,'$.import')='imported' THEN 'linked' ELSE 'pending' END,
- lower(substr(json_extract(f.value,'$.target'),-4)) IN ('.mkv','.mp4'),json_extract(j.body,'$.discovery')='confirmed' FROM jobs j,json_each(j.body,'$.plan.files') f;
+
  `
 	}
-	migration += "PRAGMA user_version=4; COMMIT;"
-	_, e = db.Exec(migration)
+	migration += "CREATE TABLE IF NOT EXISTS legacy_plan_evidence(job_id TEXT NOT NULL REFERENCES jobs(id),plan_version INTEGER NOT NULL,body TEXT NOT NULL,PRIMARY KEY(job_id,plan_version));"
+	_, e = tx.Exec(migration)
+	if e == nil && schema < 5 {
+		e = migratePlansTx(context.Background(), tx)
+	}
+	if e == nil {
+		_, e = tx.Exec("PRAGMA user_version=5")
+	}
+	if e == nil {
+		e = tx.Commit()
+	}
 	if e != nil {
+		tx.Rollback()
 		db.Close()
 		return nil, e
 	}

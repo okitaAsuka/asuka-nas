@@ -7,6 +7,9 @@ import (
 
 // namingCheck 先检查来源变化；晚到矛盾只报告，不改动历史目标。
 func (e *Engine) namingCheck(ctx context.Context, j *Job) error {
+	if j.BlockReason == "legacy_evidence_unresolved" {
+		return nil
+	}
 	epoch, err := e.Store.NamingEpoch(ctx)
 	if err != nil {
 		return err
@@ -19,6 +22,9 @@ func (e *Engine) namingCheck(ctx context.Context, j *Job) error {
 		code := ""
 		if err := e.Store.checkFrozenEvidence(ctx, j); err != nil {
 			code = "late_mapping_conflict"
+			if err.Error() == "legacy_evidence_unresolved" {
+				code = err.Error()
+			}
 		}
 
 		if code == j.BlockReason && j.CheckedContext == j.ContextVersion {
@@ -83,7 +89,7 @@ func (e *Engine) namingPlan(ctx context.Context, j *Job, video string) (*Plan, e
 	if err != nil {
 		return nil, err
 	}
-	p.ParserVersion = 2
+	p.ParserVersion = TitleParserVersion
 	p.RuleEpoch = epoch
 	p.ContextVersion = j.ContextVersion
 	p.Decision = d
@@ -111,7 +117,7 @@ func (e *Engine) bindManualPlan(ctx context.Context, j Job, p *Plan) error {
 	if d != nil && d.Target != p.Files[0].Target {
 		return errors.New("mapping_conflict")
 	}
-	p.ParserVersion = 2
+	p.ParserVersion = TitleParserVersion
 	p.RuleEpoch = epoch
 	p.ContextVersion = j.ContextVersion
 	p.Decision = d
