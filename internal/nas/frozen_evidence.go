@@ -53,7 +53,11 @@ func checkManualEvidence(p *ManualSemantics, title string) error {
 	if e != nil {
 		return e
 	}
-	if t.Absolute != nil || t.Collection || t.Relative == nil || t.Relative.Start != p.Episode || t.Relative.End != p.Episode || (t.Season != 0 && t.Season != p.Season) || !aliasMatched(t, p.Identity) {
+	identity, err := normalizeTitle(p.Identity)
+	if err != nil {
+		return err
+	}
+	if t.Absolute != nil || t.Collection || t.Relative == nil || t.Relative.Start != p.Episode || t.Relative.End != p.Episode || (t.Season != 0 && t.Season != p.Season) || !aliasMatched(t, identity) {
 		return errors.New("manual_evidence_conflict")
 	}
 	return nil

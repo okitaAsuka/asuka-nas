@@ -81,7 +81,7 @@ func (r NamingRule) resolveMapped(title, source string) (NamingDecision, error) 
 	if p.Group != "" && f.Group != "" && p.Group != f.Group {
 		return d, errors.New("title_file_conflict")
 	}
-	if specialEpisode.MatchString(f.Normalized) || f.Collection {
+	if hasSpecialEpisode(f.Normalized) || f.Collection {
 		return d, errors.New("unsupported_episode_kind")
 	}
 	expected, e := r.resolvedRange(p)

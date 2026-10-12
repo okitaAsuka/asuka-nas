@@ -15,7 +15,7 @@ import (
 )
 
 const TitleLimit = 8192
-const TitleParserVersion = 3
+const TitleParserVersion = 4
 
 type EpisodeRange struct {
 	Start int `json:"start"`
@@ -52,7 +52,6 @@ func normalizeTitle(raw string) (string, error) {
 	return strings.Join(strings.Fields(s), " "), nil
 }
 
-var specialEpisode = regexp.MustCompile(`(?i)(?:\b(?:SP|OVA|OAD|NCOP|NCED|Special|PV)(?:[ ._-]*[0-9]+)?\b|特典|特别篇|特別篇|番外)`)
 var aliasEpisodeBoundary = regexp.MustCompile(`(?i)^[ ._-]+S[0-9]{1,2}E[0-9]{1,3}(?:$|[ .\[])`)
 var numericGroup = regexp.MustCompile(`^[0-9]+(?:[~-][0-9]+)?$`)
 var bracketEpisode = regexp.MustCompile(`\[([0-9]{1,3})(?:[~\-]([0-9]{1,3}))?\]`)
@@ -81,7 +80,7 @@ func ParseTitle(raw string) (TitlePreview, error) {
 	if err != nil {
 		return p, err
 	}
-	if specialEpisode.MatchString(s) {
+	if hasSpecialEpisode(s) {
 		return p, errors.New("unsupported_episode_kind")
 	}
 	if multiEpisode.MatchString(s) {
@@ -165,24 +164,28 @@ func ParseTitle(raw string) (TitlePreview, error) {
 }
 
 type NamingRule struct {
-	Episodes     *EpisodeRange    `json:"episodes,omitempty"`
-	Absolute     *AbsoluteMapping `json:"absolute,omitempty"`
-	ID           string           `json:"id"`
-	Revision     int              `json:"revision"`
-	SeriesID     string           `json:"series_id"`
-	Provider     string           `json:"provider"`
-	Order        string           `json:"order"`
-	Subscription string           `json:"subscription"`
-	Group        string           `json:"group,omitempty"`
-	Aliases      []string         `json:"aliases"`
-	Season       int              `json:"season"`
-	Directory    string           `json:"directory"`
-	DisplayName  string           `json:"display_name"`
+	IdentityNormalizationVersion int              `json:"identity_normalization_version,omitempty"`
+	Episodes                     *EpisodeRange    `json:"episodes,omitempty"`
+	Absolute                     *AbsoluteMapping `json:"absolute,omitempty"`
+	ID                           string           `json:"id"`
+	Revision                     int              `json:"revision"`
+	SeriesID                     string           `json:"series_id"`
+	Provider                     string           `json:"provider"`
+	Order                        string           `json:"order"`
+	Subscription                 string           `json:"subscription"`
+	Group                        string           `json:"group,omitempty"`
+	Aliases                      []string         `json:"aliases"`
+	Season                       int              `json:"season"`
+	Directory                    string           `json:"directory"`
+	DisplayName                  string           `json:"display_name"`
 }
 
 var opaqueName = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,80}$`)
 
 func (r NamingRule) Validate() error {
+	if _, e := r.comparisonView(); e != nil {
+		return e
+	}
 	if r.Episodes != nil && (r.Episodes.Start < 1 || r.Episodes.End < r.Episodes.Start || r.Episodes.End > 999) {
 		return errors.New("rule_invalid_range")
 	}
@@ -200,7 +203,7 @@ func (r NamingRule) Validate() error {
 	if !opaqueName.MatchString(r.ID) || !opaqueName.MatchString(r.SeriesID) || !opaqueName.MatchString(r.Order) || !opaqueName.MatchString(r.Subscription) || r.Provider != "manual" || r.Revision < 1 || r.Season < 1 || r.Season > 99 || !local(r.Directory) || !local(r.DisplayName) || filepath.Base(r.DisplayName) != r.DisplayName || len(r.Aliases) < 1 || len(r.Aliases) > 32 {
 		return errors.New("rule_invalid")
 	}
-	for _, s := range append(append([]string{}, r.Aliases...), r.Group, r.DisplayName, r.Directory) {
+	for _, s := range []string{r.DisplayName, r.Directory} {
 		v, e := normalizeTitle(s)
 		if e != nil || v != s {
 			return errors.New("rule_not_normalized")
@@ -229,6 +232,8 @@ func titleSegments(p TitlePreview) []string {
 	return result
 }
 func aliasMatched(p TitlePreview, alias string) bool {
+	p = identityPreview(p)
+	alias = identitySpacing(alias)
 	for _, part := range titleSegments(p) {
 		if part == alias {
 			return true
@@ -245,9 +250,15 @@ func aliasMatched(p TitlePreview, alias string) bool {
 
 // knownIdentity 是有界身份线索，格式或 group 不确定时阻塞，不能假装没有规则。
 func (r NamingRule) knownIdentity(subscription string, p TitlePreview) bool {
+	p = identityPreview(p)
 	if r.Subscription != subscription {
 		return false
 	}
+	view, err := r.comparisonView()
+	if err != nil {
+		return true
+	}
+	r = view
 	for _, a := range r.Aliases {
 		for _, part := range titleSegments(p) {
 			if part == a {
@@ -255,7 +266,8 @@ func (r NamingRule) knownIdentity(subscription string, p TitlePreview) bool {
 			}
 			if strings.HasPrefix(part, a) {
 				tail := part[len(a):]
-				if len(tail) > 0 && strings.ContainsRune(" [] ._-:", rune(tail[0])) {
+				first, _ := utf8.DecodeRuneInString(tail)
+				if len(tail) > 0 && releaseDelimiter(first) {
 					return true
 				}
 			}
@@ -265,6 +277,12 @@ func (r NamingRule) knownIdentity(subscription string, p TitlePreview) bool {
 }
 
 func (r NamingRule) matches(subscription string, p TitlePreview) bool {
+	p = identityPreview(p)
+	view, err := r.comparisonView()
+	if err != nil {
+		return false
+	}
+	r = view
 	if r.Subscription != subscription || (r.Group != "" && r.Group != p.Group) {
 		return false
 	}

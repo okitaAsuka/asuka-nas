@@ -44,7 +44,7 @@ func releaseKind(raw string) error {
 	if e != nil {
 		return e
 	}
-	if specialEpisode.MatchString(s) {
+	if hasSpecialEpisode(s) {
 		return errors.New("unsupported_episode_kind")
 	}
 	return nil

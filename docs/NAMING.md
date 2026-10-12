@@ -46,3 +46,5 @@ add 只存不可变草稿。修改要使用新 revision；enable 明确激活该
 
 
 N3/N4 更新：上述“合集仅预览”属于 N1 历史边界。当前显式有限规则可执行完整合集，规则新增 episodes/absolute，详见 COLLECTIONS.md。解析器 v2 拒绝小数等未支持编号；别名识别保留首括号作品名及完整 SxxExx 边界。冻结规则按历史 RuleRefs 验证新增来源，未来规则目录变化不造成假冲突；人工计划保存目标语义和上下文摘要。不能自动迁移已归档文件。
+
+定向复验修复：alias/group 保存原文；新规则记录 identity_normalization_version=1，旧未标版本0经只读比较视图兼容。标题与alias使用同一规范化及结构布局比较，版本未知或无法安全兼容时 rule_normalization_unresolved，不 fallback。该视图不重写版本、目标或Plan摘要。特殊篇采用媒体分隔符 token，包含下划线；不以任意单词子串识别 SP/OVA。parser v4。

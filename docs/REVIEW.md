@@ -226,3 +226,16 @@ internal/nas/files_test.go:func TestConfirmationRechecksConflict(t *testing.T) {
 5. 旧无规则计划的证明数据放入 legacy_plan_evidence，不改 Plan 或其 digest。仅在计划/当前来源版本一致、目标季集可解析且全部保留标题语义相符时回填；否则标记 legacy_evidence_unresolved 并阻塞后续导入/媒体处理，保持已归档历史。相同或兼容语义的新 GUID 与证明数据比较，真正新矛盾仍阻塞。无证明不猜、不自动迁移媒体。
 
 新增表驱动覆盖有界/无界与 RSS/文件位置、SP/OVA等类别、括号/冒号类别、分数/上标/实体编码/范围端点；旧证据的存在/缺失/矛盾/晚到版本及摘要不变。保留原独立复验测试，不改变其断言。完整验证结果见本次交付，待外部独立复验；不宣称生产就绪。
+
+## 6d23b5d 两项 P1 残余修复（仅修复，无新增功能）
+
+输入独立报告 libfile_4686f4abe4f881919c9c3feeddb7c84e v2、43403B。原样引入 independent_v3_targeted_test.go；修复前实际复现 _SP_、_OVA_ 与旧停用圆括号 alias 共3个失败实例，其余对照通过。修复后与报告文件 cmp 一致，未改断言。
+
+共同契约位于 identity_contract.go：
+- releaseDelimiter 采用 Unicode 空白/标点/符号分词，明确包含下划线。特殊篇只比较完整标记 token（允许数字后缀），不再使用 regexp 的 ASCII word boundary；SPARK/NOVATION/OVATION 等普通单词不命中。RSS、全部 manifest 项和规则解析共用此门禁。
+- 新规则标记 identity_normalization_version=1；未标版本0作为历史原文兼容。comparisonView 对 alias/group 创建副本并做与标题一致的规范化，不更新规则行、不改变目录/显示名/历史Plan。结构括号前布局分隔符及括号/冒号空白采用同一幂等处理，作品名内部标点不折叠。HTML/NFKC只执行一次，避免重复解码造成不对称。
+- 未知规范化版本或不能安全规范化的存量身份，在所属订阅直接 rule_normalization_unresolved，不允许回落严格文件名。已知身份的未识别尾部仍 rule_scope_ambiguous，不能因格式变化丢掉停用规则。
+
+表驱动覆盖标记×分隔符、普通嵌入词对照、旧alias圆/方括号/年份/质量/HTML实体、启用与停用、结构布局、未知版本、数字语义不兼容；比较规则原文不变、冻结PlanDigest在新GUID/重启后不变。parser版本4，SQLite仍schema5，无迁移或历史重写。
+
+最终真实 Go1.26.9 make verify：101顶层测试及子测试、race、vet、build 全通过；git diff --check通过，原独立v3测试逐字节保持。未访问真实服务/GitHub、未修改asuka-agent、未合并或部署。等待外部独立复验，不宣称生产就绪。

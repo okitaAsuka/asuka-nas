@@ -78,3 +78,7 @@ schema v4 添加整包目标预约及逐文件 pending/intended/linked/discovere
 新5类缺陷已复现并修复：特殊篇统一门禁、标点 alias 绕过、Unicode/范围数字截断、迁移前缀预约冲突、旧计划冻结证据缺失。解析器v3先验证完整数字token；SQLite schema v5复用运行时预约校验并原子回滚。旧计划只有证据可证明一致时回填独立证明记录，不改历史Plan/digest；否则 legacy_evidence_unresolved 明确待人工处理。详情见 REVIEW.md。旧无证明的已执行计划尚无自动解除/历史迁移功能，禁止猜测。
 
 本次修复最终验证：真实 Go 1.26.9，92个顶层测试及子测试、race/vet/build 全通过；原独立v2测试逐字节保持，git diff --check 通过。无真实服务或GitHub访问；待外部独立复验。
+
+## 最终定向复验两项残余修复
+
+统一媒体分隔 token 边界修复 _SP_/_OVA_；版本化比较视图兼容旧括号 alias，不修改历史规则或Plan。未知规范化版本/不可兼容身份直接阻塞。parser v4、identity_normalization_version=1（旧未标版本0兼容）、schema仍5。101顶层测试及子测试/race/vet/build通过，原独立v3断言保持；待外部独立复验，无生产就绪声明。

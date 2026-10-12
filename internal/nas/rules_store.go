@@ -98,6 +98,9 @@ func (s *Store) NamingEpoch(ctx context.Context) (int64, error) {
 
 // AddRule 只创建不可变草稿，不激活规则。相同 series ID 的 provider/order 不得改变。
 func (s *Store) AddRule(ctx context.Context, r NamingRule) error {
+	if r.IdentityNormalizationVersion == 0 {
+		r.IdentityNormalizationVersion = identityNormalizationVersion
+	}
 	if e := r.Validate(); e != nil {
 		return e
 	}
@@ -244,6 +247,11 @@ func (s *Store) resolveNaming(ctx context.Context, id, source string, frozen []s
 
 		matched := false
 		for _, a := range rules {
+			if a.r.Subscription == c.Subscription {
+				if _, err := a.r.comparisonView(); err != nil {
+					return nil, nil, err
+				}
+			}
 			if !a.r.matches(c.Subscription, p) {
 				continue
 			}

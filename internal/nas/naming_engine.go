@@ -133,7 +133,7 @@ func (e *Engine) bindManualPlan(ctx context.Context, j Job, p *Plan) error {
 
 func namingBlock(code string) bool {
 	switch code {
-	case "rule_scope_ambiguous", "collection_mapping_required", "collection_incomplete", "duplicate_episode", "absolute_relative_conflict", "absolute_mapping_unresolved", "episode_out_of_bounds", "unsupported_episode_kind", "invalid_file_manifest", "unsupported_video", "unsupported_file_set", "multiple_or_missing_videos", "needs_confirmation", "subtitle_mapping_ambiguous", "title_invalid", "episode_ambiguous", "episode_conflict", "season_conflict", "season_ambiguous", "collection_preview_only", "episode_unresolved", "title_file_conflict", "rule_disabled", "mapping_conflict", "source_mapping_unresolved":
+	case "rule_normalization_unresolved", "rule_scope_ambiguous", "collection_mapping_required", "collection_incomplete", "duplicate_episode", "absolute_relative_conflict", "absolute_mapping_unresolved", "episode_out_of_bounds", "unsupported_episode_kind", "invalid_file_manifest", "unsupported_video", "unsupported_file_set", "multiple_or_missing_videos", "needs_confirmation", "subtitle_mapping_ambiguous", "title_invalid", "episode_ambiguous", "episode_conflict", "season_conflict", "season_ambiguous", "collection_preview_only", "episode_unresolved", "title_file_conflict", "rule_disabled", "mapping_conflict", "source_mapping_unresolved":
 		return true
 	}
 	return false
