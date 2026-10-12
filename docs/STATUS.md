@@ -35,3 +35,7 @@ Dockerfile 是构建骨架；未构建/运行镜像，未部署 NAS。
 - 真实 NAS 架构/挂载、硬链接权限、Docker 构建、真实 CI。
 
 参考仓库 `/workspace/asuka-agent` 保持 clean，未修改。预置历史不含 a1ff5c4，读取当前 ACTIVE_PLAN H1/H2 与归档设计。交付独立目录 `/workspace/asuka-nas`，另有包含 main 和开发分支的 Git bundle。
+
+## 独立复核阶段
+
+在 c1c54c8 基线上逐段审查，修复持久化目录链、取消、批次停止顺序、配置总长度和 downloader 参数边界。21 个顶层测试（含事务故障子测试）通过 race/vet/build；不以覆盖率认定生产安全。完整发现、测试名、文件树和真实适配/fake 边界见 REVIEW.md。远端按用户要求不再重试创建或扩权。

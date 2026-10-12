@@ -50,7 +50,21 @@ func (e *Engine) Tick(ctx context.Context, now time.Time) error {
 		return err
 	}
 	var failures []error
+	failed := map[string]bool{}
 	for _, id := range ids {
+		j, err := e.Store.Get(ctx, id)
+		if err != nil {
+			return err
+		}
+		if err = e.stop(ctx, &j, now); err != nil {
+			failures = append(failures, err)
+			failed[id] = true
+		}
+	}
+	for _, id := range ids {
+		if failed[id] {
+			continue
+		}
 		if err = e.tick(ctx, id, now); err != nil {
 			failures = append(failures, err)
 		}
@@ -144,7 +158,7 @@ func (e *Engine) tick(ctx context.Context, id string, now time.Time) error {
 			j.Import = "needs_confirmation"
 			return e.Store.Save(ctx, &j, "needs_confirmation")
 		}
-		p, err := e.Files.Preview(videos[0], j.Version+1)
+		p, err := e.Files.PreviewContext(ctx, videos[0], j.Version+1)
 		if err != nil {
 			if err.Error() == "needs_confirmation" {
 				j.Import = "needs_confirmation"
@@ -168,7 +182,7 @@ func (e *Engine) tick(ctx context.Context, id string, now time.Time) error {
 		}
 		// 先验证所有指纹再开始；单个链接与状态提交间崩溃靠同 inode 恢复。
 		for _, f := range j.Plan.Files {
-			fp, err := e.Files.Fingerprint(f.Source)
+			fp, err := e.Files.FingerprintContext(ctx, f.Source)
 			if err != nil {
 				return e.fail(ctx, &j, err.Error())
 			}
@@ -177,7 +191,7 @@ func (e *Engine) tick(ctx context.Context, id string, now time.Time) error {
 			}
 		}
 		for _, f := range j.Plan.Files {
-			if err = e.Files.Link(f); err != nil {
+			if err = e.Files.LinkContext(ctx, f); err != nil {
 				return e.fail(ctx, &j, err.Error())
 			}
 		}
@@ -271,7 +285,7 @@ func (e *Engine) Confirm(ctx context.Context, id string, version int, digest str
 		return errors.New("stale_plan")
 	}
 	for _, f := range j.Plan.Files {
-		fp, err := e.Files.Fingerprint(f.Source)
+		fp, err := e.Files.FingerprintContext(ctx, f.Source)
 		if err != nil {
 			return err
 		}

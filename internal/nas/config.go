@@ -1,6 +1,7 @@
 package nas
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -22,7 +23,11 @@ type Config struct {
 // LoadConfig 严格解码，不回传含秘密的解析错误。
 func LoadConfig(r io.Reader) (Config, error) {
 	var c Config
-	d := json.NewDecoder(io.LimitReader(r, 65537))
+	b, err := io.ReadAll(io.LimitReader(r, 65537))
+	if err != nil || len(b) > 65536 {
+		return c, errors.New("invalid_config")
+	}
+	d := json.NewDecoder(bytes.NewReader(b))
 	d.DisallowUnknownFields()
 	if d.Decode(&c) != nil {
 		return c, errors.New("invalid_config")

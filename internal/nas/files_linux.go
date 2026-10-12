@@ -3,6 +3,7 @@
 package nas
 
 import (
+	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -68,7 +69,10 @@ func openBeneath(root int, p string, flags uint64) (int, error) {
 }
 
 // fingerprint 包含内容和 inode 身份；执行前后检查元数据，拒绝变化的文件。
-func fingerprint(fd int) (string, error) {
+func fingerprint(ctx context.Context, fd int) (string, error) {
+	if ctx.Err() != nil {
+		return "", errors.New("operation_cancelled")
+	}
 	var before, after unix.Stat_t
 	if e := unix.Fstat(fd, &before); e != nil || before.Mode&unix.S_IFMT != unix.S_IFREG {
 		return "", errors.New("not_regular_file")
@@ -83,7 +87,10 @@ func fingerprint(fd int) (string, error) {
 		return "", errors.New("file_read_failed")
 	}
 	h := sha256.New()
-	if _, e = io.Copy(h, file); e != nil {
+	if _, e = io.Copy(h, contextReader{ctx, file}); e != nil {
+		if ctx.Err() != nil {
+			return "", errors.New("operation_cancelled")
+		}
 		return "", errors.New("file_read_failed")
 	}
 	if unix.Fstat(fd, &after) != nil || before.Size != after.Size || before.Mtim != after.Mtim || before.Ctim != after.Ctim {
@@ -94,12 +101,17 @@ func fingerprint(fd int) (string, error) {
 
 // Fingerprint 从固定根目录打开文件，不跟随任何 symlink。
 func (f *Files) Fingerprint(p string) (string, error) {
+	return f.FingerprintContext(context.Background(), p)
+}
+
+// FingerprintContext 允许 daemon 退出时中断大文件哈希。
+func (f *Files) FingerprintContext(ctx context.Context, p string) (string, error) {
 	fd, e := openBeneath(f.source, p, unix.O_RDONLY|unix.O_NONBLOCK)
 	if e != nil {
 		return "", e
 	}
 	defer unix.Close(fd)
-	return fingerprint(fd)
+	return fingerprint(ctx, fd)
 }
 
 // parent 逐级 mkdirat/openat2，已存在 symlink 不能成为目标父目录。
@@ -117,6 +129,10 @@ func (f *Files) parent(p string) (int, string, error) {
 			unix.Close(fd)
 			return -1, "", errors.New("target_directory_failed")
 		}
+		if e = syncDirectory(fd); e != nil {
+			unix.Close(fd)
+			return -1, "", e
+		}
 		next, e := openBeneath(fd, part, unix.O_PATH|unix.O_DIRECTORY)
 		unix.Close(fd)
 		if e != nil {
@@ -128,13 +144,16 @@ func (f *Files) parent(p string) (int, string, error) {
 }
 
 // Link 不覆盖、不删除、不复制；同 inode 仅代表幂等重放成功。
-func (f *Files) Link(p PlannedFile) error {
+func (f *Files) Link(p PlannedFile) error { return f.LinkContext(context.Background(), p) }
+
+// LinkContext 每个不可逆效果前检查取消；已创建链接保留供下次恢复。
+func (f *Files) LinkContext(ctx context.Context, p PlannedFile) error {
 	src, e := openBeneath(f.source, p.Source, unix.O_RDONLY|unix.O_NONBLOCK)
 	if e != nil {
 		return e
 	}
 	defer unix.Close(src)
-	fp, e := fingerprint(src)
+	fp, e := fingerprint(ctx, src)
 	if e != nil {
 		return e
 	}
@@ -146,6 +165,12 @@ func (f *Files) Link(p PlannedFile) error {
 		return e
 	}
 	defer unix.Close(dst)
+	if ctx.Err() != nil {
+		return errors.New("operation_cancelled")
+	}
+	if unix.Fsync(src) != nil {
+		return errors.New("file_sync_failed")
+	}
 	// /proc/self/fd 仅指向已验证的源 fd；AT_SYMLINK_FOLLOW 不作用于用户输入。
 	e = unix.Linkat(unix.AT_FDCWD, fmt.Sprintf("/proc/self/fd/%d", src), dst, name, unix.AT_SYMLINK_FOLLOW)
 	if errors.Is(e, unix.EXDEV) {
@@ -159,12 +184,16 @@ func (f *Files) Link(p PlannedFile) error {
 	} else if e != nil {
 		return errors.New("link_failed")
 	}
-	fp, e = fingerprint(src)
+	fp, e = fingerprint(ctx, src)
 	if e != nil || fp != p.Fingerprint {
 		return errors.New("fingerprint_changed")
 	}
-	// 目录 fsync 让硬链接先于 imported 状态持久化。
-	syncfd, e := unix.Openat(dst, ".", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	return syncDirectory(dst)
+}
+
+// syncDirectory 同步每层父目录，避免 imported 提交后断电丢失新建目录。
+func syncDirectory(fd int) error {
+	syncfd, e := unix.Openat(fd, ".", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 	if e != nil {
 		return errors.New("directory_sync_failed")
 	}
@@ -175,11 +204,28 @@ func (f *Files) Link(p PlannedFile) error {
 	return nil
 }
 
+type contextReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (r contextReader) Read(b []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.r.Read(b)
+}
+
 var explicitEpisode = regexp.MustCompile(`^(.+?)[ ._-]+S([0-9]{2})E([0-9]{2})$`)
 var subtitleSuffix = regexp.MustCompile(`^(\.[A-Za-z0-9-]+){0,2}\.(srt|ass|ssa|vtt)$`)
 
 // Preview 仅支持无歧义显式季度集数；标题来自文件名而非不可信 RSS。
 func (f *Files) Preview(source string, version int) (*Plan, error) {
+	return f.PreviewContext(context.Background(), source, version)
+}
+
+// PreviewContext 命名和指纹计算共用取消信号。
+func (f *Files) PreviewContext(ctx context.Context, source string, version int) (*Plan, error) {
 	base := path.Base(source)
 	ext := strings.ToLower(path.Ext(base))
 	if ext != ".mkv" && ext != ".mp4" {
@@ -194,7 +240,7 @@ func (f *Files) Preview(source string, version int) (*Plan, error) {
 		return nil, errors.New("needs_confirmation")
 	}
 	target := fmt.Sprintf("%s/Season %s/%s - S%sE%s%s", title, m[2], title, m[2], m[3], ext)
-	return f.plan(source, target, version)
+	return f.plan(ctx, source, target, version)
 }
 
 // ProposedPlan 供人工明确命名；仍需 Confirm 绑定版本与完整指纹。
@@ -202,14 +248,14 @@ func (f *Files) ProposedPlan(source, target string, version int) (*Plan, error) 
 	if strings.ToLower(path.Ext(source)) != strings.ToLower(path.Ext(target)) {
 		return nil, errors.New("invalid_target_extension")
 	}
-	return f.plan(source, target, version)
+	return f.plan(context.Background(), source, target, version)
 }
 
-func (f *Files) plan(source, target string, version int) (*Plan, error) {
+func (f *Files) plan(ctx context.Context, source, target string, version int) (*Plan, error) {
 	if !local(source) || !local(target) {
 		return nil, errors.New("unsafe_path")
 	}
-	fp, e := f.Fingerprint(source)
+	fp, e := f.FingerprintContext(ctx, source)
 	if e != nil {
 		return nil, e
 	}
@@ -245,7 +291,7 @@ func (f *Files) plan(source, target string, version int) (*Plan, error) {
 			continue
 		}
 		src := path.Join(dir, name)
-		fp, e = f.Fingerprint(src)
+		fp, e = f.FingerprintContext(ctx, src)
 		if e != nil {
 			return nil, e
 		}

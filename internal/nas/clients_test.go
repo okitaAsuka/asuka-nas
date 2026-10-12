@@ -49,3 +49,24 @@ func TestQBLoginAndSemanticFailure(t *testing.T) {
 		t.Fatal("add false success")
 	}
 }
+
+func TestDownloaderRejectsBroadOrInjectedCommands(t *testing.T) {
+	calls := 0
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++ }))
+	defer s.Close()
+	q := &QB{HTTPBoundary: NewHTTPBoundary(s.URL, ""), Downloads: "/fixture"}
+	for _, hash := range []string{"all", fixtureHash + "|" + fixtureHash, "secret\n"} {
+		if err := q.Stop(context.Background(), hash); err == nil {
+			t.Fatal("unsafe stop accepted")
+		}
+		if _, err := q.Status(context.Background(), hash); err == nil {
+			t.Fatal("unsafe status accepted")
+		}
+	}
+	if err := q.Add(context.Background(), "https://private.invalid?token=secret"); err == nil {
+		t.Fatal("arbitrary URL add accepted")
+	}
+	if calls != 0 {
+		t.Fatal("unsafe command reached downloader")
+	}
+}

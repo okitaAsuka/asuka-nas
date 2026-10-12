@@ -94,6 +94,10 @@ func (q *QB) Login(ctx context.Context, user, password string) error {
 
 // Add 的 torrent infohash 自带去重；失败后可按相同 hash 重试。
 func (q *QB) Add(ctx context.Context, magnet string) error {
+	hash := strings.TrimPrefix(magnet, "magnet:?xt=urn:btih:")
+	if !strings.HasPrefix(magnet, "magnet:?xt=urn:btih:") || !btih.MatchString(hash) {
+		return errors.New("invalid_magnet")
+	}
 	if !filepath.IsAbs(q.Downloads) || filepath.Clean(q.Downloads) != q.Downloads {
 		return errors.New("invalid_download_root")
 	}
@@ -111,6 +115,9 @@ func (q *QB) Add(ctx context.Context, magnet string) error {
 // Status 只在确实完成时读取下载器文件清单。
 func (q *QB) Status(ctx context.Context, hash string) (TorrentStatus, error) {
 	var s TorrentStatus
+	if !btih.MatchString(hash) {
+		return s, errors.New("invalid_infohash")
+	}
 	b, e := q.call(ctx, "GET", "/api/v2/torrents/info?"+url.Values{"hashes": {hash}}.Encode(), nil)
 	if e != nil {
 		return s, e
@@ -140,6 +147,9 @@ func (q *QB) Status(ctx context.Context, hash string) (TorrentStatus, error) {
 
 // Files 独立于完成状态查询，文件 API 故障不能阻塞停止做种。
 func (q *QB) Files(ctx context.Context, hash string) ([]string, error) {
+	if !btih.MatchString(hash) {
+		return nil, errors.New("invalid_infohash")
+	}
 	// 路径映射属于导入校验，不能阻塞完成时间和停止做种。
 	info, err := q.call(ctx, "GET", "/api/v2/torrents/info?"+url.Values{"hashes": {hash}}.Encode(), nil)
 	if err != nil {
@@ -179,6 +189,9 @@ func (q *QB) Files(ctx context.Context, hash string) ([]string, error) {
 
 // Stop 只停止做种，绝不删除种子或源文件。
 func (q *QB) Stop(ctx context.Context, hash string) error {
+	if !btih.MatchString(hash) {
+		return errors.New("invalid_infohash")
+	}
 	_, e := q.call(ctx, "POST", "/api/v2/torrents/stop", url.Values{"hashes": {hash}})
 	return e
 }
