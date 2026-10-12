@@ -1,0 +1,8 @@
+*.db
+*.db-*
+.env
+config.json
+/bin/
+/.cache/
+
+/asuka-nas

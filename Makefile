@@ -1,0 +1,6 @@
+.PHONY: verify
+verify:
+	test -z "$$(gofmt -l cmd internal)"
+	go vet ./...
+	go test -race -count=1 ./...
+	go build ./cmd/asuka-nas

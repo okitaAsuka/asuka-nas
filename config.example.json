@@ -1,0 +1,8 @@
+{
+  "database": "/data/asuka-nas/state.db",
+  "downloads": "/media/downloads",
+  "library": "/media/library",
+  "seed_days": 7,
+  "qb_url": "http://qbittorrent:8080",
+  "emby_url": "http://emby:8096"
+}
