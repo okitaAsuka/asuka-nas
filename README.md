@@ -14,3 +14,6 @@ go run ./cmd/asuka-nas -config config.example.json
 ```
 
 配置检查不连接任何服务。部署凭据将由用户配置，不在仓库内生成。
+
+如环境中 `go` 不是实际 Go 工具链，设置 `GO_BINARY=/absolute/path/to/go1.26.9/bin/go` 后运行 `scripts/dev.sh`。
+Dockerfile 仅提供构建骨架，当前容器入口仍是配置检查。完整限制和验证证据见进度文档。

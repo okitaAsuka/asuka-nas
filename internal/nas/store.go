@@ -15,20 +15,21 @@ import (
 
 // Job 的各状态正交，停止做种不能受导入失败影响。
 type Job struct {
-	ID          string `json:"id"`
-	Version     int    `json:"version"`
-	Hash        string `json:"hash"`
-	Magnet      string `json:"magnet"`
-	Download    string `json:"download"`
-	Import      string `json:"import"`
-	Refresh     string `json:"refresh"`
-	Discovery   string `json:"discovery"`
-	Seed        string `json:"seed"`
-	CompletedAt int64  `json:"completed_at"`
-	StopAt      int64  `json:"stop_at"`
-	SeedDays    int    `json:"seed_days"`
-	ErrorCode   string `json:"error_code"`
-	Plan        *Plan  `json:"plan,omitempty"`
+	Sources     []string `json:"sources,omitempty"`
+	ID          string   `json:"id"`
+	Version     int      `json:"version"`
+	Hash        string   `json:"hash"`
+	Magnet      string   `json:"magnet"`
+	Download    string   `json:"download"`
+	Import      string   `json:"import"`
+	Refresh     string   `json:"refresh"`
+	Discovery   string   `json:"discovery"`
+	Seed        string   `json:"seed"`
+	CompletedAt int64    `json:"completed_at"`
+	StopAt      int64    `json:"stop_at"`
+	SeedDays    int      `json:"seed_days"`
+	ErrorCode   string   `json:"error_code"`
+	Plan        *Plan    `json:"plan,omitempty"`
 }
 
 // Plan 在确认时冻结全部文件，版本或指纹变化即失效。
@@ -74,6 +75,16 @@ func OpenStore(path string) (*Store, error) {
 		return nil, e
 	}
 	db.SetMaxOpenConns(1)
+	var schema int
+	if e = db.QueryRow("PRAGMA user_version").Scan(&schema); e != nil {
+		db.Close()
+		return nil, e
+	}
+	if schema > 1 {
+		db.Close()
+		return nil, errors.New("unsupported_schema_version")
+	}
+
 	_, e = db.Exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
  CREATE TABLE IF NOT EXISTS subscriptions(id TEXT PRIMARY KEY);
  CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY, hash TEXT UNIQUE NOT NULL, version INTEGER NOT NULL, body TEXT NOT NULL);

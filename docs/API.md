@@ -8,6 +8,6 @@
 - POST /v1/jobs/{id}/confirm: version + plan digest，绑定完整文件集合；过期 409、指纹变化 412、路径错误 422、冲突 409。确认只批准该方案，执行仍校验文件。
 - GET /v1/events?after=123&limit=100: {id, schema_version:1, job_id, kind}；按 ID 正序，断线从 last acknowledged ID 恢复。消费者按 id 幂等，不承诺 exactly-once。
 
-事件类型：resource_seen、download_requested、download_completed、needs_confirmation、plan_ready、plan_confirmed、imported、refresh_requested、discovered、seed_stopped、operation_failed。
+事件类型：resource_seen、download_requested、download_submitted、download_completed、needs_confirmation、plan_ready、plan_confirmed、imported、refresh_requested、discovered、seed_stopped、operation_failed。
 事件只包含不透明 job ID 与固定类型，不包含 URL、标题、token、原始异常。
 Discord、远程命名建议提交、鉴权 listener 和持久消费 cursor API 都后置，当前 Store.Events(after) 已可重放。

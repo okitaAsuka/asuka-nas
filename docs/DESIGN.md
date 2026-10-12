@@ -36,3 +36,9 @@ SQLite 本地磁盘 WAL、foreign_keys、busy_timeout；单连接串行事务。
 ## 验证门槛
 
 make verify = 格式、go vet、race tests、build。fixture 覆盖重复 RSS/完成事件、SQLite reopen、硬链接后崩溃重放、重试、指纹变化、路径逃逸/冲突、字幕、0/7 天、独立停止、刷新与发现分离。GitHub Actions 与本地同入口；开发分支不合并。
+
+## 上游依据与首版限制
+
+qB adapter 使用 [官方 5.x API](https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-%28qBittorrent-5.0%29) 的 add/info/files/stop；4.x 兼容后置。add 显式 savepath，文件查询校验 save_path 与配置一致；qB 容器和本服务必须使用相同下载路径。Emby 按 [官方浏览 API](https://dev.emby.media/doc/restapi/Browsing-the-Library.html) 查询并精确核对 Path，本服务和 Emby 也须同路径挂载。实际版本兼容性与认证过期刷新尚未在真实服务验收。
+
+只处理单视频 torrent 的最小闭环，多视频进入待确认且当前不支持整体批准，不能只导入其中一个后误标完成。字幕仅同 stem 的有限格式，扫描上限 4096 项。人工确认预先检查目标冲突，执行仍以独占 linkat 作最终仲裁。Linux 需要支持 openat2（5.6+）和 /proc/self/fd；不支持时 fail closed。

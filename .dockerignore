@@ -1,0 +1,7 @@
+.git
+*.db
+*.db-*
+.env
+config.json
+asuka-nas
+.cache

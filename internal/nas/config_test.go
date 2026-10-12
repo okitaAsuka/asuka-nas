@@ -77,3 +77,19 @@ func TestStoreAtomicReplay(t *testing.T) {
 		t.Fatal(j, e)
 	}
 }
+
+func TestRejectFutureSchema(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "state.db")
+	s, e := OpenStore(p)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = s.db.Exec("PRAGMA user_version=2"); e != nil {
+		t.Fatal(e)
+	}
+	s.Close()
+	if s, e = OpenStore(p); e == nil {
+		s.Close()
+		t.Fatal("future schema overwritten")
+	}
+}
