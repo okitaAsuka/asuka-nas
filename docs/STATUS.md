@@ -1,6 +1,23 @@
 # 当前状态 / 2026-10-12
 
-当前最新阶段：ceef1f4 之后的有界部署准备，见 DEPLOY_PREP.md、RUNNING.md。本机中文管理 UI/API、schema v5 + 控制扩展 v2 / parser v4 保持不变。下文旧阶段按历史保留；生产就绪未获确认。
+当前功能以本节和代码为准。后文是历史阶段记录，其中“未实现”只描述当时。NAS领域schema5/控制扩展v2/parser v4保持不变；没有远端仓库、推送、部署或真实服务验收。
+
+| 能力 | 当前状态 |
+| --- | --- |
+| RSS magnet/enclosure → qB 5.x 下载/去重 | 已实现，fake HTTP验收 |
+| 本机管理页保存/预览/启用人工规则、下一集自动映射 | 已实现；篇章季号/目录由人明确选择 |
+| 明确有界总集数/相对编号、合集逐文件冻结/恢复、硬链接 | 已实现；不猜现实季度，不删源 |
+| Emby refresh与独立逐视频发现 | 已实现；全部视频确认后才discovered/ready |
+| 独立0–7天到期stop | 已实现；通知故障不参与执行状态 |
+| 专用GET /v1/events，服务认证与分页重放 | 已实现，默认关闭，仅新回环端口；管理CSRF独立 |
+| gateway持久inbox/outbox/cursor → Discord固定通知 | asuka-agent配套实现；fake跨仓验收，无模型/远程命令 |
+| 真实NAS/qB/Emby/Discord、跨机隧道/TLS部署 | 未验，本版不开放LAN事件监听 |
+
+配置、启动与fake跨仓入口见 [NOTIFICATIONS.md](NOTIFICATIONS.md)。通知只包含任务标识和固定阶段说明，不公开标题/URL/源路径/凭据/原始异常。at-least-once；Discord nonce仅短窗口去重，不能保证端到端exactly-once。
+
+本轮验证与review入口见 [NOTIFICATIONS_REVIEW.md](NOTIFICATIONS_REVIEW.md)。
+
+## 历史阶段记录（不作为当前功能矩阵）
 
 ## 部署准备里程碑 / 2026-10-12
 

@@ -12,5 +12,10 @@
   "fetch_interval_ms": 250,
   "rss_max_bytes": 2097152,
   "torrent_max_bytes": 8388608,
-  "max_items": 200
+  "max_items": 200,
+  "events": {
+    "enabled": false,
+    "listen": "127.0.0.1:8788",
+    "token_env": "ASUKA_NAS_EVENTS_TOKEN"
+  }
 }

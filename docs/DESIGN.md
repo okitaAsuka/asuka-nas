@@ -1,6 +1,8 @@
 # 首版设计 / 2026-10-12
 
-本文保留阶段演进记录。最新 UI/API 与运行边界见 LOCAL_MANAGEMENT.md、WEB_PLAN.md；当前支持显式 -serve 本机管理，不支持 LAN 鉴权或 Discord。
+当前架构：独立NAS拥有下载/文件/规则状态；本机管理UI/API已实现。新增默认关闭的专用回环事件服务，gateway通过独立服务认证只读重放，再用持久队列输出Discord固定通知；不调用Runtime/模型。当前边界见 STATUS.md、NOTIFICATIONS.md。
+
+以下保留阶段演进记录；早期“仅单集/无HTTP/UI/Discord”等限制由末尾N3/N4、本机管理及本轮实现覆盖。
 
 ## 范围与所有权
 
@@ -65,3 +67,8 @@ MVP 收尾：合集识别覆盖常见视频扩展名，但只自动入库唯一 
 ## N3/N4 当前边界（覆盖早期仅单集描述）
 
 schema v4 引入全目标预约与逐文件持久执行，支持人工明确有界映射的完整合集；状态及迁移审查见 COLLECTIONS.md。命名优先人工版本规则，保留严格 SxxExx fallback，但已知规则的模糊 scope/别名、停用和证据矛盾不能 fallback。低置信度继续待确认。每个视频分别确认 Emby Path，全部确认才产生最终 discovered；做种仍独立。没有通用工作流框架或模型依赖。
+
+
+## 当前通知边界
+
+专用回环端口只支持GET /v1/events，部署env引用的Bearer不复用管理nonce。NAS与gateway不共享SQLite。gateway单消费者持有独占owner锁，inbox/outbox/cursor同事务；外部ACK之后才能标sent。故障不改变NAS导入/做种。详细失败与隐私契约见NOTIFICATIONS.md。

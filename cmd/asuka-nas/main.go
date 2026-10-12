@@ -81,24 +81,36 @@ func run() error {
 	engine := &nas.Engine{Store: store, Files: files, QB: qb, Emby: emby, Library: cfg.Library}
 	daemon := &nas.Daemon{Config: cfg, Engine: engine, Source: nas.NewSourceClient(time.Duration(cfg.RequestTimeoutSeconds)*time.Second, cfg.RSSMaxBytes, cfg.TorrentMaxBytes, cfg.MaxItems), Logger: slog.New(slog.NewJSONHandler(os.Stderr, nil))}
 	daemon.Source.Gap = time.Duration(cfg.FetchIntervalMillis) * time.Millisecond
-	if !*serve {
-		return daemon.Run(ctx)
+	// 各服务先完成初始化，再启动循环；任一失败取消并等待全部退出。
+	workers := []func() error{func() error { return daemon.Run(ctx) }}
+	if cfg.Events.Enabled {
+		l, h, err := nas.OpenEventService(cfg.Events, store)
+		if err != nil {
+			return err
+		}
+		defer l.Close()
+		workers = append(workers, func() error { return nas.ServeManagement(ctx, l, h) })
 	}
-	listener, err := nas.ListenManagement(*listen)
-	if err != nil {
-		return err
+	if *serve {
+		listener, err := nas.ListenManagement(*listen)
+		if err != nil {
+			return err
+		}
+		defer listener.Close()
+		management, err := nas.NewManagement(ctx, daemon, listener.Addr().String())
+		if err != nil {
+			return err
+		}
+		workers = append(workers, func() error { return nas.ServeManagement(ctx, listener, management) })
 	}
-	defer listener.Close()
-	management, err := nas.NewManagement(ctx, daemon, listener.Addr().String())
-	if err != nil {
-		return err
+	results := make(chan error, len(workers))
+	for _, worker := range workers {
+		go func() { results <- worker() }()
 	}
-	// HTTP 与轮询共享取消；等待所有写操作结束后才释放数据库。
-	results := make(chan error, 2)
-	go func() { results <- daemon.Run(ctx) }()
-	go func() { results <- nas.ServeManagement(ctx, listener, management) }()
 	err = <-results
 	cancel()
-	other := <-results
-	return errors.Join(err, other)
+	for i := 1; i < len(workers); i++ {
+		err = errors.Join(err, <-results)
+	}
+	return err
 }

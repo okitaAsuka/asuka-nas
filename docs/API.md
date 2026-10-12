@@ -1,6 +1,12 @@
-# v1 agent 契约（未来远程接口）
+# 当前事件接口与未来远程契约
 
-当前已实现 `/api` 本机管理接口，见 [LOCAL_MANAGEMENT.md](LOCAL_MANAGEMENT.md)。下文 `/v1`、Bearer和gateway仍是未实现的设计，不能与当前本机入口混用。
+当前已实现 `/api` 本机管理与独立只读事件服务。事件服务默认关闭，仅专用回环端口；`Authorization: Bearer <部署env已有值>`，不复用浏览器nonce，不接受Origin/Sec-Fetch-Site，精确Host；无CORS。
+
+`GET /v1/events?after=123` 固定最多100条，返回 `{"events":[{"id":124,"schema_version":1,"job_id":"32位十六进制标识","kind":"discovered","plan_version":1,"file_index":0}],"next_cursor":124}`。plan/file可省略；空页events=[]且cursor保持after。after必填非负int64；拒绝重复/未知query；无limit参数。401鉴权/浏览器来源、400游标、404其它路径、405写方法、503读取失败。事件与响应没有标题、URL、tracker、绝对源路径、凭据或异常原文。只读服务不确认/重规划任务。
+
+配置与配套gateway协议见 [NOTIFICATIONS.md](NOTIFICATIONS.md)。其它`/v1/jobs`/confirmations/preview/confirm仍未实现，下面仅为未来设计。所有早期“无HTTP/gateway/Discord”叙述均为历史记录，不能替代本节。
+
+## 未来远程命令设计（未实现）
 
 部署时用户提供静态 Bearer token，仅用于本服务；不由开发流程生成。仅可信内网，外部访问需要 TLS。agent 不得直连 SQLite。
 
@@ -8,7 +14,7 @@
 - GET /v1/confirmations: 待确认 job 和 plan version。原始文件名/RSS 上下文只可在鉴权响应中返回，永不进事件/日志；UI 必须转义。
 - POST /v1/jobs/{id}/preview: 明确 title/season/episode（不猜季度），返回 version、plan digest、文件指纹、相对目标。
 - POST /v1/jobs/{id}/confirm: version + plan digest，绑定完整文件集合；过期 409、指纹变化 412、路径错误 422、冲突 409。确认只批准该方案，执行仍校验文件。
-- GET /v1/events?after=123&limit=100: {id, schema_version:1, job_id, kind}；按 ID 正序，断线从 last acknowledged ID 恢复。消费者按 id 幂等，不承诺 exactly-once。
+- GET /v1/events 已按本页顶部只读契约实现；不接受此历史设计的limit参数。
 
 事件类型：resource_seen、download_requested、download_submitted、download_completed、needs_confirmation、plan_ready、plan_confirmed、imported、refresh_requested、discovered、seed_stopped、operation_failed。
 事件只包含不透明 job ID 与固定类型，不包含 URL、标题、token、原始异常。

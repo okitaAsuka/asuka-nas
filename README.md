@@ -1,5 +1,7 @@
 # asuka-nas
 
+当前已实现下载/人工映射/合集恢复及本机管理；新增默认关闭的专用事件服务，配套gateway确定性Discord输出。配置与fake跨仓验收见[docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md)，当前矩阵见[docs/STATUS.md](docs/STATUS.md)。
+
 Go 1.26.9 + SQLite 的独立 NAS 番剧入库服务。qBittorrent 下载、同文件系统硬链接、Emby 刷新与发现确认，正常流程不依赖模型。
 
 已实现 RSS/.torrent HTTP 适配和常驻轮询，**只用本地 fixtures 验证，尚未进行真实服务或 NAS 部署验收**。显式 `-serve` 可运行中文本地管理界面；没有 LAN 鉴权或 Discord 接入。
