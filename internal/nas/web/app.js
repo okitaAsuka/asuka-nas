@@ -2539,6 +2539,8 @@ class ProposalReview {
     return { id: p.id, revision: p.revision, version: p.version };
   }
   sync() {
+    // 静默赋值在请求边界被观察后也更新去重基线；恢复原值必须同步按钮状态。
+    this.editor.last = this.editor.snapshot();
     const pending = this.proposal.state === "pending",
       dirty = this.editor.dirty(),
       trial = this.gate.reviewed();

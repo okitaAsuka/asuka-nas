@@ -171,6 +171,19 @@ with sync_playwright() as p:
     expect(approve).to_be_disabled()
     page.locator('[name=proposal_scope_approval]').focus(); page.keyboard.press('Space')
     expect(approve).to_be_enabled()
+    # Decision boundary rechecks silent edits; restoring identical saved values recovers controls.
+    before = len([x for x in posts if x.endswith('/proposal-approve')])
+    for change in ['reason', 'scope']:
+        if change == 'reason': page.locator('[name=proposal_scope_reason]').evaluate('(n)=>n.value="静默未保存理由"')
+        else: page.locator('[name=proposal_scope_declaration]').evaluate('(n)=>n.checked=false')
+        approve.click(); expect(approve).to_be_disabled(); expect(output).to_be_empty()
+        expect(status).to_contain_text('尚未保存')
+        assert len([x for x in posts if x.endswith('/proposal-approve')]) == before
+        if change == 'reason': page.locator('[name=proposal_scope_reason]').fill(reason)
+        else: page.locator('[name=proposal_scope_declaration]').check()
+        expect(page.get_by_role('button',name='历史试算当前版本')).to_be_enabled()
+        trial(); confirm(); expect(approve).to_be_enabled()
+    print('PASS decision snapshot: silent declaration edits cannot approve; restoring saved values recovers trial and requires both confirmations again')
     page.screenshot(path='/tmp/asuka-rule-review-desktop.png', full_page=True)
     page.set_viewport_size({'width':390,'height':844})
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'review mobile overflow'

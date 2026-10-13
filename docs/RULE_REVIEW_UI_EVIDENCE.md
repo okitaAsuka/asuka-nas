@@ -2,7 +2,7 @@
 
 ## 版本与边界
 
-前端基线 `b8298f8f168356e47a90ba033fa5d1f532a1f99b`，独立分支 `codex/nas-rule-review-ui-20261013`。仅修改 web、浏览器测试、verify-ui 入口和本文；不修改业务 Go/SQL/DTO/认证/CSP。未递归委派、合并 main、创建 PR 或部署。已在原前端HEAD `041420df3ad58489fe84d1a6e05ece7a571c8acd` 上 cherry-pick 后端 `82c525958faee8a37adb1e5fb727f64581a8f985`（本地同内容提交 `9ae64f9`）；范围 DTO 按父确认的 `scope_declaration` / `scope_review` 合同接入。
+前端基线 `b8298f8f168356e47a90ba033fa5d1f532a1f99b`，独立分支 `codex/nas-rule-review-ui-20261013`。除合入父指定后端提交和更新STATUS说明外，独立前端修改限于 web、浏览器测试、verify-ui 入口及本文；不另改业务 Go/SQL/DTO/认证/CSP。未递归委派、合并 main、创建 PR 或部署。已在原前端HEAD `041420df3ad58489fe84d1a6e05ece7a571c8acd` 上 cherry-pick 后端 `82c525958faee8a37adb1e5fb727f64581a8f985`（本地同内容提交 `9ae64f9`）；范围 DTO 按父确认的 `scope_declaration` / `scope_review` 合同接入。
 
 ## 交互与可复用组件
 
@@ -44,8 +44,10 @@ CI运行中的真实API桌面与390px截图只保存在runner临时目录，没�
 
 生产浏览器新增强制路径：E01人工原始记录→agent候选→未声明扩大范围失败且保留草稿→显式声明E01–12/理由→双击仅一次新revision→旧revision stale/不可批准→当前成功试算精确verified=[1]、unverified=[2..12]和理由→一般人工确认仍不能批准→未验证范围二次确认→双击批准/取消晚响应/重新读取actual approved→新E02无需人工确认自动硬链接及fake Emby发现。Go核对目标同inode、原E01冻结plan/人工意图不变、样本feed仍只有原E01且总下载恰好两次。
 
-保存后的声明也覆盖真实API晚success/error矩阵：开关、理由、静默开关/理由、边界、reset、取消、导航和历史revision切换；均不能接收旧试算。513 UTF-8字节理由在前端定位阻止提交，符合后端512字节上限。保留拒绝、stale、epoch、冲突、23revision分页、不可信模型文本、键盘和390px，以及原四组浏览器回归。
+保存后的声明也覆盖真实API晚success/error矩阵：开关、理由、静默开关/理由、边界、reset、取消、导航和历史revision切换；均不能接收旧试算。513 UTF-8字节理由在前端定位阻止提交，符合后端512字节上限。自审修复静默赋值后的原值恢复：请求边界观察字段时同步编辑器去重基线，恢复已保存值重新开放试算；批准入口的静默声明开关/理由变更均不写入，恢复后仍需新试算及两次确认。保留拒绝、stale、epoch、冲突、23revision分页、不可信模型文本、键盘和390px，以及原四组浏览器回归。
 
 本机模拟布局检查已通过。当前环境仍无预装SQLite模块缓存，既有现代SQLite下载Forbidden不重试/换源；真实生产浏览器与最终完整验证使用授权功能分支CI。集成最终SHA/CI链接及结果在最终交付回复绑定，不把旧前端CI当作本轮集成通过。
 
 父提供并已完成的独立跨仓证据：NAS后端CI [38374145844](https://github.com/okitaAsuka/asuka-nas/actions/runs/38374145844)，agent `5e2d572293ed0074bdc5280caffe10edf18eafb0` CI [38374847569](https://github.com/okitaAsuka/asuka-agent/actions/runs/38374847569)；后端owner跨仓race smoke通过真实handler/worker、模型stub、ACK丢失重启只一次模型调用、人工声明1–12批准及E02实际硬链接/发现。这是父交接的实跑证据，当前前端环境没有重跑两仓smoke。
+
+集成检查点 `353d998ad90451053c2b20bf981b2588a333635f` 的 [CI 38376206997](https://github.com/okitaAsuka/asuka-nas/actions/runs/38376206997) 已成功：make verify、模拟布局门、原四组浏览器回归和强制生产API范围审核→E02链全部通过。该运行包含保存后的声明晚响应矩阵、513字节校验、历史与重复点击；修复静默编辑恢复后的最终候选将再运行完整CI并在交付回复绑定唯一SHA。
