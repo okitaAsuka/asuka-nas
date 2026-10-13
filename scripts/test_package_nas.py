@@ -68,6 +68,9 @@ class PackagingTest(unittest.TestCase):
         checksum = archive.with_suffix(archive.suffix + '.sha256')
         self.assertEqual(checksum.read_text(), f'{pkg.digest(archive)}  {archive.name}\n')
         with tarfile.open(archive) as tar:
+            for member in tar.getmembers():
+                self.assertEqual(member.mode, 0o755 if member.isdir() else 0o644)
+                self.assertEqual((member.uid, member.gid, member.uname, member.gname), (0, 0, '', ''))
             files = {Path(m.name).name: tar.extractfile(m).read() for m in tar.getmembers() if m.isfile()}
         self.assertEqual(set(files), {'image.tar', 'compose.yaml', 'config.template.json',
                                      'credentials.env.template', 'DEPLOY.md', '.env', 'VERSION.json', 'SHA256SUMS'})

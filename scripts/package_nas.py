@@ -87,7 +87,7 @@ def package(root=ROOT, env=os.environ):
         (bundle / 'SHA256SUMS').write_text(''.join(f'{digest(p)}  {p.name}\n' for p in entries))
         staged = tmp / archive.name
         with tarfile.open(staged, 'w:gz') as tar:
-            tar.add(bundle, arcname=name)
+            tar.add(bundle, arcname=name, filter=archive_mode)
         staged_checksum = tmp / checksum.name
         staged_checksum.write_text(f'{digest(staged)}  {archive.name}\n')
         # 硬链接独占发布，绝不覆盖既有交付包。
@@ -99,6 +99,15 @@ def package(root=ROOT, env=os.environ):
             raise
     print(f'Package: {archive}\nChecksum: {checksum}')
     return archive
+
+
+def archive_mode(info):
+    # 包内只有公开模板和镜像；明确归档权限，使非 root 容器能读取模板。
+    # 不更改主机现有文件权限；归档不带本机用户名/UID。
+    info.mode = 0o755 if info.isdir() else 0o644
+    info.uid = info.gid = 0
+    info.uname = info.gname = ''
+    return info
 
 
 def digest(path):
