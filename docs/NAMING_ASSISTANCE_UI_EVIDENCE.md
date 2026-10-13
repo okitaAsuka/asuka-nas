@@ -2,7 +2,7 @@
 
 ## 本轮整合（覆盖下方首版限制）
 
-唯一writer在UI e3d3ef610f626b2de8298e1b682044cd48857652之后接入NAS后端17acfcfe0849f762bfe16f3cc2eb29e20bc920bf的两次增量（9288389、17acfcf）；首版3f0b933不重复。包装41be7726bb2b8900bf1ca77761773ef335215a1d相对e4bdde7的五次提交全部cherry-pick保留；agent配套dd5b2bb06c17845406e7bce986146e1dd6030915不改。最终SHA和CI/包链接在交付回复绑定，不在提交内循环引用。
+唯一writer在UI e3d3ef610f626b2de8298e1b682044cd48857652之后接入NAS后端17acfcfe0849f762bfe16f3cc2eb29e20bc920bf的两次增量（9288389、17acfcf）；首版3f0b933不重复。包装41be7726bb2b8900bf1ca77761773ef335215a1d相对e4bdde7的五次提交全部cherry-pick保留；agent原配套dd5b2bb06c17845406e7bce986146e1dd6030915后追加预检小修80834dcf664af482b8aeaf38351222bd5efe6c17。最终SHA和CI/包链接在交付回复绑定，不在提交内循环引用。
 
 更新UI：显示human/automatic触发与尚无结果；缺资料可补facts重试或直接填表；拒绝/过期/离线普通batch恢复启用，主动“改用独立人工整理”也可用。来源永久保留；普通人工fallback不改变原建议终态。做种导致的preview CAS过期会重读当前任务、保留同一建议和草稿，只需重新preview，不要求再次模型请求。health只显示支持、配置和未知运行状态；唯一Go小修为该投影与测试，没有改变命名/文件业务不变量。
 
@@ -78,3 +78,10 @@ Go 测试设计使用真实 Chromium、生产 Management 的 Host/Origin/CSRF �
 3. **已拒绝或过期且曾收到结果的批量人工退路仍有后端限制**：BatchPlan 保留 assistance；batch-confirm 要匹配命名 preview，而 naming-preview 仅接受 suggested/unresolved。UI保留人工表并关闭该状态的批量批准，要求明确申请当前快照，不洗掉模型来源。unresolved 状态及 requested尚未接触模型时的人工退路已接入；拒绝/过期后的无新请求人工完整批准路径需后端 owner 决定并补合同。旧单文件独立人工修订仍由后端保留模型来源。
 
 候选提交推送后停止写入。最终整合 Makefile、业务依赖复验、最新后端/包装合并和验收属于父任务。
+
+
+## 最终成本预检增补
+
+NAS automatic请求无可信目录/显示名来源，不能花一次模型调用判断已知必缺facts。agent在NAS check后、reserveModel前确定性生成完整合法unresolved，列缺目录/显示名及待核对季号；不进calling，不增加calls/attempts。人补齐facts再明确请求新建议，或直接人工填表终审，不猜资料、不放松NAS校验。当前界面不把该预检结果假称模型输出；来源仍保守保留辅助历史，不能洗成pure human。
+
+原12场景跨仓证据中automatic/unresolved的calls1现为calls0；其它完整facts场景仍calls1。最新agent相关race、全CI及两仓smoke由最终整合CI绑定新配套SHA执行，历史12场景通过不直接代替成本变化复验。

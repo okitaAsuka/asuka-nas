@@ -93,7 +93,7 @@ func TestNamingAssistanceBrowserLoop(t *testing.T) {
 				return
 			}
 			snapshot := page.Items[len(page.Items)-1].Snapshot
-			result := NamingResult{Protocol: 1, ID: snapshot.ID, Digest: snapshot.Digest, Status: "unresolved", Explanation: "缺少明确目录、显示名与季号", Uncertainties: []string{"请人工补充媒体目录、显示名、季号"}}
+			result := NamingResult{Protocol: 1, ID: snapshot.ID, Digest: snapshot.Digest, Status: "unresolved", Explanation: "必要人工事实缺失；未调用模型，未消耗模型预算。", Uncertainties: []string{"媒体目录：请补充明确的媒体库相对目录", "显示名：请补充明确的媒体库显示名", "季号未由人工声明：请核对明确季号或SxxExx证据"}}
 			targets := map[string]PlannedFile{}
 			episodes := map[string]int{}
 			if action == "suggest" {
@@ -134,6 +134,10 @@ func TestNamingAssistanceBrowserLoop(t *testing.T) {
 			}
 			for _, file := range snapshot.Files {
 				row := NamingSuggestionRow{FileID: file.ID, Basis: "完整清单 + 人工事实", Uncertainties: []string{}}
+				if action == "unresolved" {
+					row.Basis = "确定性资料预检；尚未生成文件建议"
+					row.Uncertainties = append([]string{}, result.Uncertainties...)
+				}
 				if p, ok := targets[file.ID]; ok {
 					row.Target = p.Target
 					row.Season = snapshot.Hints.Season

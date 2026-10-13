@@ -9,7 +9,7 @@
 | 完整任务 batch 与不可变对比 | 已实现；逐文件预览/版本摘要绑定、实际硬链接、逐视频Emby发现、部分执行恢复 |
 | agent归纳人工规则候选 | 已实现；持久样本/结果，人工有限范围试算和终审；范围内下一集自动映射 |
 | 单任务命名建议 UI/API | 已实现；人工facts、完整逐文件依据与不确定项、编辑后naming-preview/confirm、人批/拒绝 |
-| 默认关闭自动命名入队 | 已实现；learning.automatic_naming显式opt-in、规则优先、有界队列/预算、缺资料unresolved、不自动重提拒绝/未解项 |
+| 默认关闭自动命名入队 | 已实现；learning.automatic_naming显式opt-in、规则优先、有界队列/预算、缺必需facts确定性unresolved且模型calls0、不自动重提拒绝/未解项 |
 | 命名语义快照 | 已实现；做种等正交job版本变化不废弃建议；旧preview仍需当前CAS重预览，不重新付费 |
 | 拒绝/过期/模型离线后的独立人工batch | 已实现；不需要新模型请求，保留辅助历史，排除纯人工学习 |
 | 专用回环事件 / learning / naming服务 | 已实现且默认关闭；服务身份无批准权限；通知仅ID和固定码 |
@@ -18,7 +18,7 @@
 | LAN管理登录/鉴权、TVDB/在线元数据 | 未实现；只回环。已有授权SSH隧道仅访问候选，不是已验部署 |
 | 真实RSS/qB/Emby/模型/Discord/NAS/SSH、arm64 | 未部署验收；fake闭环与CI不能代替真实环境 |
 
-集成来源：UI e3d3ef610f626b2de8298e1b682044cd48857652；NAS后端17acfcfe0849f762bfe16f3cc2eb29e20bc920bf只接3f0b933后增量；包装41be7726bb2b8900bf1ca77761773ef335215a1d保留e4bdde7后的全部五提交；agent配套dd5b2bb06c17845406e7bce986146e1dd6030915，未改agent工作树。没有main merge/PR/部署或创建凭据。
+集成来源：UI e3d3ef610f626b2de8298e1b682044cd48857652；NAS后端17acfcfe0849f762bfe16f3cc2eb29e20bc920bf只接3f0b933后增量；包装41be7726bb2b8900bf1ca77761773ef335215a1d保留e4bdde7后的全部五提交；agent原配套dd5b2bb06c17845406e7bce986146e1dd6030915后，按父授权小修目录/显示名预检与回归；新配套80834dcf664af482b8aeaf38351222bd5efe6c17。没有main merge/PR/部署或创建凭据。
 
 验证入口：make verify（Go1.26.9格式/vet/race/build及Python预检），make verify-ui（保留原浏览器门并加入命名生产API测试），make package-test，make package-nas。本机SQLite/libc官方依赖下载Forbidden，本轮生产Go/浏览器由已授权CI执行；未执行或失败不能计为通过。最终运行结果见交付回复及[NAMING_ASSISTANCE_UI_EVIDENCE.md](NAMING_ASSISTANCE_UI_EVIDENCE.md)。CI归档生产浏览器日志/截图及绑定最终SHA的离线包。
 

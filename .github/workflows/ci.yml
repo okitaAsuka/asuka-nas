@@ -28,3 +28,36 @@ jobs:
             /tmp/nas-ui.log
             /tmp/asuka-naming-*.png
           retention-days: 14
+  naming-facts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: okitaAsuka/asuka-agent
+          ref: 80834dcf664af482b8aeaf38351222bd5efe6c17
+          path: .ci-agent
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.9'
+          cache-dependency-path: |
+            go.sum
+            .ci-agent/go.sum
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # 先预热两端编译，再启动有界握手smoke；不以编译超时替代协议验收。
+      - run: go test -race -count=1 ./internal/nas -run '^TestNaming'
+      - run: go test -race -count=1 ./internal/apps/gateway/naslearning
+        working-directory: .ci-agent
+      - run: python3 -B scripts/nas-naming-smoke.py --nas-repo "$GITHUB_WORKSPACE" | tee /tmp/nas-naming-crossrepo.log
+        working-directory: .ci-agent
+        shell: bash
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nas-naming-crossrepo-${{ github.sha }}
+          path: /tmp/nas-naming-crossrepo.log
+          retention-days: 14

@@ -59,6 +59,7 @@ try:
         # Preserve a manual draft when polling receives a suggestion.
         page.locator('[name=batch_directory]').fill('Draft preserved')
         suggest();page.get_by_role('button',name='重新读取建议状态').click()
+        expect(page.locator('[data-naming-state]')).to_contain_text('建议待审核')
         expect(page.locator('[name=batch_directory]')).to_have_value('Draft preserved')
         expect(page.locator('.naming-evidence tbody tr')).to_have_count(4)
         assert page.locator('.naming-evidence img, .naming-evidence script, .naming-evidence a').count()==0 and page.evaluate('window.PWNED') is None
@@ -119,6 +120,7 @@ try:
         expect(page.locator('[data-naming-state]')).to_contain_text('已请求')
         assert posts[-1][1]['retry'] is True and posts[-1][1]['hints']['season']==4
         suggest();page.get_by_role('button',name='重新读取建议状态').click()
+        expect(page.locator('[data-naming-state]')).to_contain_text('建议待审核')
         expect(page.get_by_role('button',name='人工拒绝本次建议')).to_be_disabled()
         page.locator('[name=naming_rejection]').check()
         page.get_by_role('button',name='人工拒绝本次建议').evaluate('(b)=>{b.click();b.click()}')

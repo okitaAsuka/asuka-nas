@@ -65,3 +65,10 @@ NAS共用batchPlan/reservePlan/recordComparison/硬链接/Emby，不引入文件
 避免每集重复终审：沿用明确人工可复用NamingRule（订阅/别名/媒体身份/集序/目录/季号及有界episodes或absolute）；POST `/api/rule-preview {rule,title,source}` 试算，POST `/api/rules` 保存不可变草稿，POST `/api/rule-state {id,revision,enabled:true,epoch}` 独立启用，范围内未来任务优先自动匹配。不能从一次模型结果静默推出未来范围。纯人工learning候选的proposal-preview/approve也保留。
 
 NAS仍是未部署领域schema8，仅增加自动扫描表/唯一索引，不改旧任务/人工证据；agent保护库schema1及原learning身份不变。nas_naming StorePath与learning分离，Mode由gateway固定naming；CLI `gateway nas-naming status|resume|retry ID`需停gateway并受owner锁保护。不接TVDB、搜索、真实模型凭据或部署；packaging/前端/最终CI由父整合。
+
+
+## 最终成本预检增补
+
+NAS automatic请求无可信目录/显示名来源，不能花一次模型调用判断已知必缺facts。agent在NAS check后、reserveModel前确定性生成完整合法unresolved，列缺目录/显示名及待核对季号；不进calling，不增加calls/attempts。人补齐facts再明确请求新建议，或直接人工填表终审，不猜资料、不放松NAS校验。当前界面不把该预检结果假称模型输出；来源仍保守保留辅助历史，不能洗成pure human。
+
+原12场景跨仓证据中automatic/unresolved的calls1现为calls0；其它完整facts场景仍calls1。最新agent相关race、全CI及两仓smoke由最终整合CI绑定新配套SHA执行，历史12场景通过不直接代替成本变化复验。

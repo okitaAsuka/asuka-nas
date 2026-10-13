@@ -1033,7 +1033,7 @@ class BatchWorkbench {
         this.confirm.dataset.unavailable = String(!this.approval.checked || !this.gate.reviewed());
         setBusy(busy);
       });
-      this.node.append(el("p", "来源：模型辅助 + 人工终审。修改、拒绝或人工整理仍保留模型接触来源，不进入纯人工学习样本。", "notice"));
+      this.node.append(el("p", "来源：命名辅助历史 + 人工终审。资料预检可能没有模型调用；修改、拒绝或人工整理仍保留来源，不进入纯人工学习样本。", "notice"));
     }
     this.node.addEventListener("reset", () => {
       this.editor.clearOrder();
@@ -1282,6 +1282,9 @@ class NamingAssistance {
     setBusy(busy);
   }
   render(draft = null, hints = null) {
+    // 状态切换替换表格时，旧组件的在途响应也必须失效。
+    this.workbench?.gate.invalidate();
+    this.workbench?.controller?.abort();
     const v = this.latest;
     this.state.replaceChildren(badge(v ? namingStates[v.state] || v.state : "尚未请求", v?.state === "unresolved" || v?.state === "stale" ? "warn" : ""));
     if (v?.state === "requested") this.state.append(el("span", " 请求已保存；NAS 没有agent在线或调用进度信息。", "muted"));
@@ -1289,7 +1292,7 @@ class NamingAssistance {
     if (v) {
       const facts = hints || v.snapshot.hints;
       this.directory.value = facts.directory || ""; this.display.value = facts.display_name || ""; this.season.value = facts.season || "";
-      this.evidence.append(el("p", `请求版本 ${v.version} · ${v.snapshot.files.length} 个完整源文件 · ${v.snapshot.trigger === "automatic" ? "自动入队（已配置启用）" : v.snapshot.trigger === "human" ? "人工请求" : "旧请求（入口未记录）"} · ${v.result ? "模型辅助 + 人工审核" : "尚无模型结果"}`, "muted"));
+      this.evidence.append(el("p", `请求版本 ${v.version} · ${v.snapshot.files.length} 个完整源文件 · ${v.snapshot.trigger === "automatic" ? "自动入队（已配置启用）" : v.snapshot.trigger === "human" ? "人工请求" : "旧请求（入口未记录）"} · ${v.result ? "命名辅助结果 + 人工审核" : "尚无辅助结果"}`, "muted"));
       if (v.result) this.evidence.append(this.resultTable(v));
       if (v.state === "unresolved") this.evidence.append(el("p", "可补充上方明确事实，再主动申请一次新建议；也可直接在下方人工填写，完整预览后批准。每任务最多3份请求，不自动重试。", "notice"));
       if (["rejected", "stale"].includes(v.state) && v.result) this.evidence.append(el("p", "原结果与辅助来源保留。可在下方独立人工整理，完整预览后直接确认；无需再次请求模型。", "notice"));
@@ -1449,6 +1452,9 @@ class NamingAssistance {
       if (g !== generation || !this.current() || !ticket.owns()) return;
       const changed = JSON.stringify(data.items) !== JSON.stringify(this.items);
       if (changed) {
+        const detail = await api("jobs/" + encodeURIComponent(this.job.id));
+        if (g !== generation || !this.current() || !ticket.owns()) return;
+        this.job = detail.job; this.detail = detail;
         // 新结果切换审核通道时保留人工草稿；在途输入变动仍丢弃旧响应。
         const raw = this.workbench?.editor.raw();
         const dirty = raw && (raw.directory || raw.display || raw.season || raw.rows.some(row => row.episode));
@@ -1500,7 +1506,7 @@ function renderComparison(record) {
     ),
     el(
       "p",
-      `${intent.origin === "model_assisted_human" ? "model_assisted_human · 模型辅助 + 人工终审（不进入纯人工学习）" : intent.origin || "human"} · ${time(intent.created_at)} · 任务版本 ${intent.job_version} · 计划版本 ${intent.plan_version}`,
+      `${intent.origin === "model_assisted_human" ? "model_assisted_human · 命名辅助历史 + 人工终审（不进入纯人工学习）" : intent.origin || "human"} · ${time(intent.created_at)} · 任务版本 ${intent.job_version} · 计划版本 ${intent.plan_version}`,
       "muted",
     ),
     el(
