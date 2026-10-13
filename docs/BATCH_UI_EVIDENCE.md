@@ -25,7 +25,7 @@
 - 记录曾把未声明语义显示 S0E0：严格检查 semantics_resolved；执行状态不写回 human 意图。
 - 两组旧部分合集回归仍找“安全重试”：按冻结语义更新为“恢复原冻结方案”，保留实际 SQLite 重开、恢复硬链接和发现断言。
 
-## 验证状态（CI 进行中）
+## 验证结果
 
 本机：官方 Go 1.26.9 linux/amd64 归档 SHA256 `42d158b4d8f7b61ac0a830567c940a86098fb7aac52e467a5ebec03ef5cc2f8d` 校验通过；node --check、四组 Python AST、git diff --check、五组 preflight unittest 通过。
 
@@ -33,8 +33,12 @@
 
 新增实际 API 测试扩展了原批量闭环：视频/字幕完整预览、辅助文件、预览无持久意图；实际目标冲突及确认失败恢复；输入、静默字段/逐行修改、reset、模式、排序、取消、导航的晚成功/错误；真实成功确认在导航后返回不覆盖新页面；键盘排序及重新确认；双击单请求；部分文件故障与冻结方案恢复、部分 Emby 发现后不完成、全部视频发现后 complete；旧 opaque 记录季集未声明；人工规则下一步入口。Go 末尾仍核对源/目标同 inode、仅一份人工记录、仅一次下载，并逐字节核对恢复前后人工意图及冻结摘要不变。部分发现用测试 Media 包装器注入恰好一个视频，最终全部发现仍通过原 fake Emby HTTP。
 
-CI 将在此分支运行既有 make verify 与四组 make verify-ui；最终链接、HEAD 与结果待完成后填入。当前尚无本轮完整浏览器通过结论。本机另发现预装系统 Chromium 154.0.8037.57，已用它做隔离的布局夹具目检：桌面和390px工作台截图、无页面异常、无文档横向溢出，静默逐行变更阻止旧确认。该布局夹具仅验证视觉/前端门禁，不代表真实后端链。截图只在 /tmp 内部检查，未上传。
+代码提交 `e02363d45c32f5a663ad563d447fa86c1e822502` 的 [CI run 38345857396](https://github.com/okitaAsuka/asuka-nas/actions/runs/38345857396) 已通过 make verify 与全部四组 make verify-ui（Go 1.26.9、race/vet/build/preflight，真实 Playwright Chromium）。最终回复给出包含本证据收尾的精确 HEAD 与对应 CI。本机另发现预装系统 Chromium 154.0.8037.57，已用它做隔离的布局夹具目检：桌面和390px工作台截图、无页面异常、无文档横向溢出，静默逐行变更阻止旧确认。该布局夹具仅验证视觉/前端门禁，不代表真实后端链。截图只在 /tmp 内部检查，未上传。
 
-第一轮 CI d905111 在新增浏览器 fixture 编译时发现错误字段名 Media；已核对 Engine.Emby 并修复，也改为完整媒体路径匹配部分发现。不会修改业务代码。
+验证过程中新增浏览器 fixture 的字段名曾错用 Media，已核对 Engine.Emby 修复；部分发现匹配完整媒体路径，并确认恰好一个视频被发现。预览路径拆成两行后也修复了文本复制时缺少箭头前空格的问题。最终四组回归保持全部通过。
 
-第二轮 CI f214d2e 的 make verify 已通过。服务端固定冲突码不含冲突行/路径，前端就地提示核对整表，不猜具体冲突文件；属于现有 DTO 的定位精度限制。
+服务端固定冲突码不含冲突行/路径，前端就地提示核对整表，不猜具体冲突文件；属于现有 DTO 的定位精度限制。
+
+四组浏览器：TestBatchOrganizerBrowserLoop、TestIndependentBrowserPreviewOwnership、TestLibraryCandidateBrowserLoop、TestBrowserProductLoop。原有规则/候选/XSS/历史订阅分页/部分合集重开 SQLite 等断言保留，旧冻结恢复仅更新正确按钮文案。新增批量测试运行生产管理 API、真实 SQLite 与临时文件，下载和媒体服务只使用本地 fake HTTP。没有静态 mock 替代实际后端验收。
+
+明确限制：本机完整 Go/浏览器业务链受 SQLite 下载 Forbidden 阻塞；前端截图使用隔离布局数据，不能当作真实后端验收。真实业务链证据来自分支 CI。没有真实 NAS/qB/Emby/部署兼容性验收；未合并主分支、创建 PR 或扩展 agent 学习。后续任务列表如果需要直接按作品名选择，当前 jobs 列表 DTO 不返回标题/源名，需父任务另审契约；本轮保留详情核对入口。
