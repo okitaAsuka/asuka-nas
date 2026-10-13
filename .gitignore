@@ -8,3 +8,18 @@ config.json
 /asuka-nas
 __pycache__/
 *.pyc
+
+# GitHub repository initialization rules (preserved)
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Logs
+*.log
