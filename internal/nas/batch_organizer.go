@@ -164,7 +164,7 @@ func (e *Engine) batchPlan(ctx context.Context, j Job, b BatchOrganization) (*Pl
 	if err = e.bindManifest(ctx, j.Sources, p); err != nil {
 		return nil, err
 	}
-	if err = e.Store.snapshotEvidence(ctx, j.ID, p); err != nil {
+	if err = e.Store.snapshotBatchEvidence(ctx, j.ID, p); err != nil {
 		return nil, err
 	}
 	return p, nil

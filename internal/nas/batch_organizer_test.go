@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -211,7 +212,7 @@ func TestBatchManualAndExplicitOrder(t *testing.T) {
 	}
 }
 func TestBatchStalenessFullFingerprintsAndReservations(t *testing.T) {
-	for _, what := range []string{"job", "auxiliary", "video", "subtitle", "rules", "target", "other-job"} {
+	for _, what := range []string{"job", "auxiliary", "video", "subtitle", "rules", "target"} {
 		t.Run(what, func(t *testing.T) {
 			f, b := batchFixture(t)
 			v := batchPreview(t, f, b)
@@ -233,10 +234,6 @@ func TestBatchStalenessFullFingerprintsAndReservations(t *testing.T) {
 				p := filepath.Join(f.library, filepath.Dir(v.Plan.Files[0].Target))
 				os.MkdirAll(p, 0750)
 				os.WriteFile(filepath.Join(f.library, v.Plan.Files[0].Target), []byte("foreign"), 0600)
-			case "other-job":
-				if _, err := f.store.db.Exec("INSERT INTO target_reservations VALUES(?,?,?)", v.Plan.Files[0].Target, f.job().ID, 123); err != nil {
-					t.Fatal(err)
-				}
 			}
 			err := f.engine.BatchConfirm(ctx, f.job().ID, v.JobVersion, v.Plan.Version, v.Digest, b)
 			if err == nil {
@@ -369,5 +366,179 @@ func TestBatchSchemaMigrationAndRollback(t *testing.T) {
 	defer db.Close()
 	if err = db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 5 {
 		t.Fatal("migration not rolled back", version, err)
+	}
+}
+
+func TestBatchCrossJobReservationAndAPIPrivacy(t *testing.T) {
+	ctx := context.Background()
+	f, b := batchFixture(t)
+	j := f.job()
+	v := batchPreview(t, f, b)
+	otherID, err := f.store.Ingest(ctx, "fixture", "other", "abcdef0123456789abcdef0123456789abcdef0123", "", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := f.store.Get(ctx, otherID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other.Plan = &Plan{Version: other.Version + 1, Files: v.Plan.Files}
+	if err = f.store.Save(ctx, &other, "plan_ready"); err != nil {
+		t.Fatal(err)
+	}
+	if err = f.engine.BatchConfirm(ctx, j.ID, v.JobVersion, v.Plan.Version, v.Digest, b); err == nil || err.Error() != "target_reserved" {
+		t.Fatal("reservation bypass", err)
+	}
+	got, err := f.store.Get(ctx, j.ID)
+	if err != nil || got.Plan != nil {
+		t.Fatal("partial confirm", got, err)
+	}
+	records, _, err := f.store.ComparisonPage(ctx, j.ID, 0)
+	if err != nil || len(records) != 0 {
+		t.Fatal(records, err)
+	}
+	// 同 inode 与来源也不能偷用另一任务的预约。
+	for _, p := range v.Plan.Files {
+		if err = f.files.LinkContext(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err = f.engine.BatchConfirm(ctx, j.ID, v.JobVersion, v.Plan.Version, v.Digest, b); err == nil || err.Error() != "target_reserved" {
+		t.Fatal("same inode stole reservation", err)
+	}
+}
+func TestBatchManagementDTOAndEvidenceBound(t *testing.T) {
+	ctx := context.Background()
+	f, b := batchFixture(t)
+	m, web := managementFixture(t, f)
+	j := f.job()
+	req := map[string]any{"id": j.ID, "version": j.Version, "organization": b}
+	code, body := postManagement(t, m, web, "batch-preview", req)
+	if code != 200 {
+		t.Fatal(code, string(body))
+	}
+	var v BatchPreview
+	if err := json.Unmarshal(body, &v); err != nil {
+		t.Fatal(err)
+	}
+	req["plan_version"] = v.Plan.Version
+	req["digest"] = v.Digest
+	code, body = postManagement(t, m, web, "batch-confirm", req)
+	if code != 200 {
+		t.Fatal(code, string(body))
+	}
+	code, body = postManagement(t, m, web, "batch-confirm", req)
+	if code != 200 {
+		t.Fatal("not idempotent", code, string(body))
+	}
+	rec := comparisons(t, f)
+	raw, _ := json.Marshal(rec)
+	if len(rec) != 1 || len(rec[0].Intent.Evidence) != 1 || rec[0].Intent.Evidence[0].TitleHash == "" {
+		t.Fatal("missing evidence", rec)
+	}
+	for _, secret := range []string{"magnet:", "http://", "hidden-secret", "untrusted secret", "<script>", "one"} {
+		if strings.Contains(string(raw), secret) {
+			t.Fatal("private source context copied", secret)
+		}
+	}
+	// 已确认记录引用原证据版本，晚到原始标题不能重写已批准意图。
+	oldDigest := rec[0].Intent.Digest
+	if err := f.store.AttachResourceTitle(ctx, "fixture", "one", "Late [69]"); err != nil {
+		t.Fatal(err)
+	}
+	rec = comparisons(t, f)
+	if rec[0].Intent.Digest != oldDigest {
+		t.Fatal("record evidence mutated")
+	}
+	g, c := batchFixture(t)
+	id := g.job().ID
+	for i := 0; i < 101; i++ {
+		if _, err := g.store.IngestRelease(ctx, "fixture", fmt.Sprintf("context-%d", i), fixtureHash, "", nil, 7, fmt.Sprintf("Example [%d]", i+1)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	current, err := g.store.Get(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = g.engine.BatchPreview(ctx, id, current.Version, c); err == nil || err.Error() != "comparison_limit" {
+		t.Fatal("unbounded evidence", err)
+	}
+}
+func TestBatchRecordPagesSupersededAndLimits(t *testing.T) {
+	ctx := context.Background()
+	f, b := batchFixture(t)
+	for i := 0; i < 21; i++ {
+		b.Directory = fmt.Sprintf("library-%02d", i)
+		v := batchPreview(t, f, b)
+		batchConfirm(t, f, b, v)
+		if i < 20 {
+			if err := f.store.Replan(ctx, f.job().ID); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	page, next, err := f.store.ComparisonPage(ctx, f.job().ID, 0)
+	if err != nil || len(page) != 20 || next == 0 {
+		t.Fatal("unbounded or missing page", len(page), next, err)
+	}
+	for _, r := range page {
+		if r.Status != "superseded" {
+			t.Fatal("superseded became successful", r.Status)
+		}
+	}
+	last, next, err := f.store.ComparisonPage(ctx, f.job().ID, next)
+	if err != nil || len(last) != 1 || next != 0 || last[0].Status != "confirmed_intent" {
+		t.Fatal(last, next, err)
+	}
+	g, c := batchFixture(t)
+	v := batchPreview(t, g, c)
+	if _, err := g.store.db.Exec(`WITH RECURSIVE n(v) AS (SELECT 1000 UNION ALL SELECT v+1 FROM n WHERE v<10999) INSERT INTO comparison_records SELECT ?,v,'{}' FROM n`, g.job().ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.engine.BatchConfirm(ctx, g.job().ID, v.JobVersion, v.Plan.Version, v.Digest, c); err == nil || err.Error() != "comparison_limit" {
+		t.Fatal("record cap bypass", err)
+	}
+	if g.job().Plan != nil {
+		t.Fatal("cap did not roll back")
+	}
+}
+func TestBatchAdditiveV5MigrationPreservesHistory(t *testing.T) {
+	f, _ := batchFixture(t)
+	j := f.job()
+	ctx := context.Background()
+	before, err := f.store.Events(ctx, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.store.db.Exec("DROP TRIGGER comparison_no_update;DROP TRIGGER comparison_no_delete;DROP TABLE comparison_records;PRAGMA user_version=5;"); err != nil {
+		t.Fatal(err)
+	}
+	f.reopen()
+	got := f.job()
+	after, err := f.store.Events(ctx, 0)
+	if err != nil || digestStringJSON(got) != digestStringJSON(j) || digestStringJSON(before) != digestStringJSON(after) {
+		t.Fatal("additive migration changed history", err)
+	}
+	if len(comparisons(t, f)) != 0 {
+		t.Fatal("migration invented samples")
+	}
+}
+
+func TestBatchLegacyOpaqueSingleRecordNeverInventsSemantics(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t, "unknown.mkv", -1)
+	id := addRelease(t, f, "fixture", "one", "")
+	f.tick(1000)
+	p, err := f.engine.Propose(ctx, id, f.name, "Chosen.mkv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = f.engine.Confirm(ctx, id, p.Version, PlanDigest(p)); err != nil {
+		t.Fatal(err)
+	}
+	records := comparisons(t, f)
+	if len(records) != 1 || records[0].Intent.Changes[0].SemanticsResolved || records[0].Intent.Changes[0].Season != 0 || records[0].Intent.Changes[0].Episode != 0 {
+		t.Fatal("opaque target fabricated semantics", records)
 	}
 }
