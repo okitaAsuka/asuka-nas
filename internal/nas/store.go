@@ -42,6 +42,7 @@ type Job struct {
 
 // Plan 在确认时冻结全部文件，版本或指纹变化即失效。
 type Plan struct {
+	Assistance     *AssistanceRef            `json:"assistance,omitempty"`
 	Batch          *BatchOrganization        `json:"batch,omitempty"`
 	Manual         *ManualSemantics          `json:"manual,omitempty"`
 	Evidence       []ContextEvidence         `json:"evidence,omitempty"`
@@ -109,7 +110,7 @@ func OpenStore(path string) (*Store, error) {
 		db.Close()
 		return nil, e
 	}
-	if schema > 7 {
+	if schema > 8 {
 		db.Close()
 		return nil, errors.New("unsupported_schema_version")
 	}
@@ -153,13 +154,13 @@ func OpenStore(path string) (*Store, error) {
 	migration += `CREATE TABLE IF NOT EXISTS comparison_records(job_id TEXT NOT NULL REFERENCES jobs(id),plan_version INTEGER NOT NULL,body TEXT NOT NULL,PRIMARY KEY(job_id,plan_version));
  CREATE TRIGGER IF NOT EXISTS comparison_no_update BEFORE UPDATE ON comparison_records BEGIN SELECT RAISE(ABORT,'immutable_comparison'); END;
  CREATE TRIGGER IF NOT EXISTS comparison_no_delete BEFORE DELETE ON comparison_records BEGIN SELECT RAISE(ABORT,'immutable_comparison'); END;`
-	migration += proposalSchema
+	migration += proposalSchema + assistanceSchema
 	_, e = tx.Exec(migration)
 	if e == nil && schema < 5 {
 		e = migratePlansTx(context.Background(), tx)
 	}
 	if e == nil {
-		_, e = tx.Exec("PRAGMA user_version=7")
+		_, e = tx.Exec("PRAGMA user_version=8")
 	}
 	if e == nil {
 		e = tx.Commit()
@@ -314,6 +315,10 @@ func (s *Store) save(ctx context.Context, j *Job, kind string, index *int) error
 		}
 	}
 	if kind == "plan_confirmed" || kind == "batch_confirmed" {
+		// 服务结果来源在任何人工入口都永久保留，防止拒绝/复制后循环自学。
+		if e = bindAssistanceTx(ctx, tx, j, kind); e != nil {
+			return e
+		}
 		if e = recordComparisonTx(ctx, tx, j); e != nil {
 			return e
 		}

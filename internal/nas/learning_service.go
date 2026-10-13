@@ -49,7 +49,7 @@ func (c LearningServiceConfig) Validate() error {
 }
 
 // OpenLearningService 与只读event身份隔离，拒绝复用实际token，不创建持续凭据。
-func OpenLearningService(c LearningServiceConfig, events EventServiceConfig, s *Store) (net.Listener, http.Handler, error) {
+func OpenLearningService(c LearningServiceConfig, events EventServiceConfig, s *Store, engines ...*Engine) (net.Listener, http.Handler, error) {
 	if !c.Enabled {
 		return nil, nil, errors.New("learning_disabled")
 	}
@@ -67,11 +67,11 @@ func OpenLearningService(c LearningServiceConfig, events EventServiceConfig, s *
 	if e != nil {
 		return nil, nil, e
 	}
-	return l, LearningHandler(s, token, l.Addr().String()), nil
+	return l, LearningHandler(s, token, l.Addr().String(), engines...), nil
 }
 
 // LearningHandler agent只能读样本和提交pending；不提供审核/文件/管理接口。
-func LearningHandler(s *Store, token, host string) http.Handler {
+func LearningHandler(s *Store, token, host string, engines ...*Engine) http.Handler {
 	expected := sha256.Sum256([]byte("Bearer " + token))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
@@ -79,6 +79,13 @@ func LearningHandler(s *Store, token, host string) http.Handler {
 		actual := sha256.Sum256([]byte(r.Header.Get("Authorization")))
 		if len(token) < 32 || r.Host != host || r.Header.Get("Origin") != "" || r.Header.Get("Sec-Fetch-Site") != "" || subtle.ConstantTimeCompare(expected[:], actual[:]) != 1 {
 			apiError(w, 401, "service_unauthorized")
+			return
+		}
+		var engine *Engine
+		if len(engines) > 0 {
+			engine = engines[0]
+		}
+		if namingService(w, r, engine) {
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)

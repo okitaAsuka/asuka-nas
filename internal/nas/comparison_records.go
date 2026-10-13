@@ -14,6 +14,7 @@ import (
 // ComparisonRecord 是不可变的人工作业意图；不包含GUID、秘密URL或凭据。
 // 执行事实另外按(job,plan,index)读取，部分链接不是成功样本。
 type ComparisonRecord struct {
+	Assistance     *AssistanceRef     `json:"assistance,omitempty"`
 	SampleID       string             `json:"sample_id"`
 	SchemaVersion  int                `json:"schema_version"`
 	Origin         string             `json:"origin"`
@@ -65,6 +66,10 @@ func recordComparisonTx(ctx context.Context, tx *sql.Tx, j *Job) error {
 		return errors.New("comparison_limit")
 	}
 	r := ComparisonRecord{SampleID: digestString(j.ID + ":" + strconv.Itoa(p.Version) + ":" + PlanDigest(p)), SchemaVersion: 1, Origin: "human", JobID: j.ID, JobVersion: j.Version, ContextVersion: p.ContextVersion, PlanVersion: p.Version, Digest: PlanDigest(p), ParserVersion: p.ParserVersion, CreatedAt: time.Now().Unix(), Organization: p.Batch, Manifest: p.Manifest, Evidence: p.Evidence}
+	if p.Assistance != nil {
+		r.Origin = "model_assisted_human"
+		r.Assistance = p.Assistance
+	}
 	for _, f := range p.Files {
 		originalVideo := f.Source
 		semantics := targetSemantics(f.Target)

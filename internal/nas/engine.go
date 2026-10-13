@@ -269,6 +269,10 @@ func (e *Engine) propose(ctx context.Context, id, source, target string) (*Plan,
 	if err = e.bindManifest(ctx, j.Sources, p); err != nil {
 		return nil, err
 	}
+	p.Assistance, err = e.Store.assistanceRef(ctx, j.ID)
+	if err != nil {
+		return nil, err
+	}
 	j.Plan = p
 	j.BlockReason = "awaiting_plan_confirmation"
 	j.Import = "needs_confirmation"

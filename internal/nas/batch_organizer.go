@@ -167,6 +167,10 @@ func (e *Engine) batchPlan(ctx context.Context, j Job, b BatchOrganization) (*Pl
 	if err = e.Store.snapshotBatchEvidence(ctx, j.ID, p); err != nil {
 		return nil, err
 	}
+	p.Assistance, err = e.Store.assistanceRef(ctx, j.ID)
+	if err != nil {
+		return nil, err
+	}
 	return p, nil
 }
 

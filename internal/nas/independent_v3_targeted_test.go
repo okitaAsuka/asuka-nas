@@ -98,7 +98,7 @@ func TestIndependentV3LegacyBridgeRollbackAndLateConflict(t *testing.T) {
 		t.Fatal("historical file moved", err)
 	}
 	var version int
-	if err := f.store.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != 7 {
+	if err := f.store.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != 8 {
 		t.Fatal(version, err)
 	}
 }
