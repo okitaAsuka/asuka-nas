@@ -55,10 +55,13 @@ func TestBatchOrganizerBrowserLoop(t *testing.T) {
 			f.engine.Files = f.files
 			err = f.engine.Tick(ctx, time.Unix(1002, 0))
 		case "/discover-one":
-			f.engine.Media = &batchPartialMedia{Media: f.engine.Media, firstTarget: f.job().Plan.Files[0].Target}
+			f.engine.Emby = &batchPartialMedia{Media: f.engine.Emby, firstTarget: filepath.Join(f.library, f.job().Plan.Files[0].Target)}
 			err = f.engine.Tick(ctx, time.Unix(1003, 0))
 		case "/discover":
-			f.engine.Media.(*batchPartialMedia).all = true
+			f.engine.Emby = f.engine.Emby.(*batchPartialMedia).Media
+			f.mu.Lock()
+			f.discovered = true
+			f.mu.Unlock()
 			err = f.engine.Tick(ctx, time.Unix(1004, 0))
 		default:
 			w.WriteHeader(404)

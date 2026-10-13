@@ -763,7 +763,7 @@ class BatchWorkbench {
   }
   async readPreview() {
     if (busy) return;
-    this.invalidate();
+    this.invalidate(); this.editor.update();
     const ticket = this.gate.begin(), request = this.editor.request();
     this.controller = new AbortController(); setBusy(true);
     this.node.setAttribute("aria-busy","true"); this.feedback("正在校验全部源文件、字幕与目标冲突… 可取消，草稿会保留。");
@@ -785,7 +785,7 @@ class BatchWorkbench {
   async confirmPlan() {
     if (busy) return;
     const reviewed = this.gate.reviewed();
-    if (!reviewed) { this.editor.clearOrder(); this.invalidate("输入已变化；请先预览当前整表，再确认。"); return; }
+    if (!reviewed) { this.editor.clearOrder(); this.editor.update(); this.invalidate("输入已变化；请先预览当前整表，再确认。"); return; }
     const ticket = this.gate.begin(); setBusy(true); this.cancel.disabled = true;
     this.node.setAttribute("aria-busy","true"); this.feedback("正在保存已核对的完整方案… 确认请求发出后无法撤销，请等待状态。");
     try {
