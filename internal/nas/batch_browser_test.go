@@ -2,6 +2,7 @@ package nas
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -32,6 +33,8 @@ func TestBatchOrganizerBrowserLoop(t *testing.T) {
 	}
 	_, opaqueWeb := managementFixture(t, opaque)
 	conflict := filepath.Join(f.library, "Human library", "Season 04", "Human Example - S04E01.mkv")
+	var confirmedIntent []byte
+	var frozenDigest string
 	control := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var err error
 		switch r.URL.Path {
@@ -47,6 +50,8 @@ func TestBatchOrganizerBrowserLoop(t *testing.T) {
 				t.Error("preview persisted intent")
 			}
 		case "/partial":
+			confirmedIntent, _ = json.Marshal(comparisons(t, f)[0].Intent)
+			frozenDigest = PlanDigest(f.job().Plan)
 			f.engine.Files = &faultFiles{FileOperations: f.files, at: 2, permission: true}
 			if f.engine.Tick(ctx, time.Unix(1001, 0)) == nil || comparisons(t, f)[0].Status != "partial" {
 				t.Error("missing partial execution")
@@ -57,6 +62,15 @@ func TestBatchOrganizerBrowserLoop(t *testing.T) {
 		case "/discover-one":
 			f.engine.Emby = &batchPartialMedia{Media: f.engine.Emby, firstTarget: filepath.Join(f.library, f.job().Plan.Files[0].Target)}
 			err = f.engine.Tick(ctx, time.Unix(1003, 0))
+			found := 0
+			for _, file := range comparisons(t, f)[0].Files {
+				if file.Video && file.Discovered {
+					found++
+				}
+			}
+			if found != 1 {
+				t.Errorf("partial discovery expected one video, got %d", found)
+			}
 		case "/discover":
 			f.engine.Emby = f.engine.Emby.(*batchPartialMedia).Media
 			f.mu.Lock()
@@ -95,6 +109,10 @@ func TestBatchOrganizerBrowserLoop(t *testing.T) {
 		if err != nil || !os.SameFile(src, dst) {
 			t.Fatal("not hardlink", err)
 		}
+	}
+	finalIntent, err := json.Marshal(comparisons(t, f)[0].Intent)
+	if err != nil || string(finalIntent) != string(confirmedIntent) || PlanDigest(j.Plan) != frozenDigest {
+		t.Fatal("intent or frozen plan changed during recovery", err)
 	}
 	if f.adds != 1 {
 		t.Fatal("duplicate download", f.adds)
