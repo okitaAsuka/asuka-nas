@@ -1015,6 +1015,7 @@ class BatchWorkbench {
     this.status.textContent = text;
     this.status.className = error ? "batch-status error" : "batch-status muted";
     this.status.setAttribute("role", error ? "alert" : "status");
+    if (error) { this.status.tabIndex = -1; this.status.focus(); }
   }
   invalidate(text = "草稿变更后，请重新预览完整整理表。") {
     this.gate.invalidate();

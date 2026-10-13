@@ -127,7 +127,19 @@ with sync_playwright() as p:
     page.screenshot(path='/tmp/asuka-batch-editor-mobile.png',full_page=True)
     expect(form.locator('[name=batch_episode]').nth(0)).to_be_visible()
     page.set_viewport_size({'width':1440,'height':1100})
+    # A real successful confirmation may arrive after navigation. Only the server saves it;
+    # the old UI response must never replace the new page or display a late success message.
+    held_confirm=[];page.route('**/api/batch-confirm',lambda route:held_confirm.append(route))
     confirm.evaluate('(b)=>{b.click();b.click()}')
+    page.wait_for_timeout(60);assert len(held_confirm)==1;assert len(writes)==1
+    page.get_by_role('button',name='健康与接入',exact=True).click()
+    expect(page.get_by_role('heading',name='本地服务与接入边界')).to_be_visible()
+    response=held_confirm[0].fetch();assert response.status==200
+    held_confirm[0].fulfill(response=response);page.unroute('**/api/batch-confirm');page.wait_for_timeout(80)
+    expect(page.get_by_role('heading',name='本地服务与接入边界')).to_be_visible()
+    assert page.locator('#message').inner_text()==''
+    page.get_by_role('button',name='任务与入库',exact=True).click()
+    page.get_by_role('button',name='查看详情').click()
     expect(page.get_by_text('计划已批准',exact=True)).to_be_visible();assert len(writes)==1
     page.get_by_role('button',name='查看对比记录').click()
     expect(page.get_by_text('人工意图已确认，尚未执行',exact=False)).to_be_visible()

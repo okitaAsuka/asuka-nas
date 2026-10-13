@@ -46,7 +46,8 @@ func TestBatchOrganizerBrowserLoop(t *testing.T) {
 		case "/clear-conflict":
 			err = os.Remove(conflict)
 		case "/assert-preview":
-			if f.job().Plan != nil || len(comparisons(t, f)) != 0 {
+			entries, readErr := os.ReadDir(f.library)
+			if readErr != nil || len(entries) != 0 || f.job().Plan != nil || len(comparisons(t, f)) != 0 {
 				t.Error("preview persisted intent")
 			}
 		case "/partial":
