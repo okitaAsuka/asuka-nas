@@ -28,11 +28,15 @@ POST `library-candidates`: `{ "directory": "相对系列目录" }`，返回 `dir
 
 ## 验证与真实限制
 
-本机真实Go1.26.9（官方发布SHA256校验）、Python3.12.14、系统Chromium。当前环境Go构建缓存置于/tmp；SQLite模块的正常官方代理下载返回Forbidden，未绕过网络限制，所以本机最终尝试make verify在go vet前依赖加载失败，make verify-ui在测试启动前同样失败；这不等于Go测试失败或浏览器断言失败。Playwright下载Domain forbidden；已找到系统Chromium，未改下载域或权限。
+本机真实Go1.26.9（官方发布SHA256校验）、Python3.12.14、系统Chromium154.0.8037.57。当前环境Go构建缓存置于/tmp；SQLite模块的正常官方代理下载返回Forbidden，未绕过网络限制，所以本机最终尝试make verify在go vet前依赖加载失败，make verify-ui在测试启动前同样失败；这不等于Go测试失败或浏览器断言失败。Playwright下载Domain forbidden；已找到系统Chromium，未改下载域或权限。
 
 本机以同一生产扫描文件/安全路径与规范化helper组成隔离包，运行实际Go1.26.9 race：四组扫描测试及九项路径/限额子测试全部通过。该检查只证明扫描组件，不替代完整仓库/API/业务验收。系统Chromium另对mock管理API做了定向UI复现：双击扫描后延迟同值change不丢弃候选、选入表单、无input事件目录改值使旧预览不能保存，均通过；这也不替代Go管理/API业务E2E。JS语法、Python编译、gofmt与diff whitespace检查通过；五组Python预检安全回归也通过。
 
-首次代码提交 `d748b98f7c82819a2060d2f78bf3993b872aaed5` 的 [CI run 38340033425](https://github.com/okitaAsuka/asuka-nas/actions/runs/38340033425)：make verify成功（含本轮API恢复/冻结测试），旧两组实际Chromium测试成功；新浏览器测试因测试选择了页面最后一个隐藏pre而非候选证据pre失败。已针对候选证据定位修正，不放宽业务断言。最终代码/CI状态在交付回复中绑定精确HEAD与链接。
+最终业务代码 `411ab90f54f4a0fdb2dc8e8058f56eabc7256ce6` 的 [CI run 38341070471](https://github.com/okitaAsuka/asuka-nas/actions/runs/38341070471) 已 success：真实Go1.26.9/Python3.12的make verify与make verify-ui全部通过。三组实际Chromium测试包含原产品闭环、独立预览归属、新增候选规则闭环。
+
+新Go fixture/Chromium证明：无计划待映射→来源线索→NFO/文件名候选→目录变化拒绝保存→重新选择→保存草稿仍不执行→单独enable→真实硬链接→Emby确认→每任务一次discovered事件；下一集自动处理且两任务qB add恰好两次。另验证目录静默赋值、双击扫描/保存、取消/忽略AbortSignal的晚响应、导航，以及不支持编号无重试/重排/单视频旁路。冻结计划未来规则变化不移目标的Go定向测试也通过。
+
+最后文档提交仅记录上述通过证据，业务代码/测试未再修改；精确交付HEAD与对应push CI状态见最终回复。早期CI曾暴露隐藏pre定位和延迟同值change问题，均已定向修复并复验，未放宽业务断言。
 
 真实NAS/真实RSS/qB/Emby/Discord、跨机事件连接、内核挂起I/O、实际断电和真实权限/挂载仍未验。CI及fixture只接临时目录和fake回环HTTP。此里程碑结束后不自动开展后续阶段。
 
