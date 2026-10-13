@@ -698,6 +698,8 @@ class BatchEditor {
     ].forEach((n) => {
       for (const event of ["input", "change"])
         n.addEventListener(event, () => {
+          // input 已记录当前值；稍后失焦的同值 change 不抹掉已审核快照。
+          if (event === "change" && this.orderSignature() === this.lastInputSignature) return;
           this.clearOrder();
           this.changed();
           this.update();
@@ -819,6 +821,7 @@ class BatchEditor {
       }
       for (const event of ["input", "change"])
         r.input.addEventListener(event, () => {
+          if (event === "change" && this.orderSignature() === this.lastInputSignature) return;
           this.clearOrder();
           this.changed();
           this.update();
@@ -852,6 +855,7 @@ class BatchEditor {
       );
       r.input.removeAttribute("aria-invalid");
     });
+    this.lastInputSignature = this.orderSignature();
   }
   markError(code) {
     let focus;
