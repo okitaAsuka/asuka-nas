@@ -89,6 +89,9 @@ func learningText(s string, max int) bool {
 // sampleFromRecord 先校验当前完整事实，再用冻结title_hash取证，晚来源不得混入。
 func sampleFromRecord(ctx context.Context, q proposalQuery, r ComparisonRecord) (LearningSample, error) {
 	v := LearningSample{Protocol: 1, Ref: SampleRef{SampleID: r.SampleID, Digest: r.Digest}, JobID: r.JobID, JobVersion: r.JobVersion, PlanVersion: r.PlanVersion, ContextVersion: r.ContextVersion, ParserVersion: r.ParserVersion, Changes: r.Changes, Contexts: []LearningContext{}}
+	if r.SchemaVersion != 1 || r.Origin != "human" {
+		return v, errors.New("sample_ineligible")
+	}
 	var body string
 	if err := q.QueryRowContext(ctx, "SELECT body FROM jobs WHERE id=?", r.JobID).Scan(&body); err != nil {
 		return v, err

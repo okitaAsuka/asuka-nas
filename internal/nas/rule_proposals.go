@@ -21,27 +21,45 @@ type ProposalInput struct {
 
 // RuleProposal 的内容不可变，人工修改只能产生下一revision；version用于受控状态CAS。
 type RuleProposal struct {
-	ID        string        `json:"id"`
-	Revision  int           `json:"revision"`
-	Version   int           `json:"version"`
-	State     string        `json:"state"`
-	Origin    string        `json:"origin"`
-	CreatedAt int64         `json:"created_at"`
-	Input     ProposalInput `json:"input"`
+	ScopeDeclaration *ScopeDeclaration `json:"scope_declaration,omitempty"`
+	ID               string            `json:"id"`
+	Revision         int               `json:"revision"`
+	Version          int               `json:"version"`
+	State            string            `json:"state"`
+	Origin           string            `json:"origin"`
+	CreatedAt        int64             `json:"created_at"`
+	Input            ProposalInput     `json:"input"`
 }
 
 // ProposalTrial 明确记录有界覆盖集合；digest绑定全部结果和当前epoch，不承诺未覆盖来源。
 type ProposalTrial struct {
-	ID        string        `json:"id"`
-	Revision  int           `json:"revision"`
-	Version   int           `json:"version"`
-	Epoch     int64         `json:"epoch"`
-	Coverage  []SampleRef   `json:"coverage"`
-	Results   []TrialResult `json:"results"`
-	Conflicts int           `json:"conflicts"`
-	Digest    string        `json:"digest"`
-	Limit     int           `json:"limit"`
-	Truncated bool          `json:"truncated"`
+	ScopeReview *ScopeReview  `json:"scope_review,omitempty"`
+	ID          string        `json:"id"`
+	Revision    int           `json:"revision"`
+	Version     int           `json:"version"`
+	Epoch       int64         `json:"epoch"`
+	Coverage    []SampleRef   `json:"coverage"`
+	Results     []TrialResult `json:"results"`
+	Conflicts   int           `json:"conflicts"`
+	Digest      string        `json:"digest"`
+	Limit       int           `json:"limit"`
+	Truncated   bool          `json:"truncated"`
+}
+
+// ScopeDeclaration 只能由人工管理路由保存；有限未验证范围不冒充模型已证实样本。
+type ScopeDeclaration struct {
+	Episodes EpisodeRange     `json:"episodes"`
+	Reason   string           `json:"reason"`
+	Absolute *AbsoluteMapping `json:"absolute,omitempty"`
+}
+
+// ScopeReview 区分原人工样本验证的集数与本次人明确声明的范围，全部纳入试算digest。
+type ScopeReview struct {
+	VerifiedEpisodes   []int            `json:"verified_episodes"`
+	DeclaredEpisodes   EpisodeRange     `json:"declared_episodes"`
+	UnverifiedEpisodes []int            `json:"unverified_episodes"`
+	Reason             string           `json:"reason"`
+	Absolute           *AbsoluteMapping `json:"absolute,omitempty"`
 }
 
 // TrialResult 只在本机授权审核DTO展示文件名，普通事件仅有ID/枚举。
@@ -58,8 +76,12 @@ func sampleSet(refs []SampleRef) string {
 	return digestStringJSON(copyRefs)
 }
 
-// validateProposal 不允许根据单例外推未观察季号/集数；人工也需新增依据才能扩大范围。
-func validateProposal(ctx context.Context, q proposalQuery, p ProposalInput) error {
+// validateProposal agent仅观察范围；人工必须显式声明有限扩展，原样本映射仍须一致。
+func validateProposal(ctx context.Context, q proposalQuery, p ProposalInput, declarations ...*ScopeDeclaration) error {
+	var declaration *ScopeDeclaration
+	if len(declarations) > 0 {
+		declaration = declarations[0]
+	}
 	if p.Protocol != 1 || len(p.Samples) < 1 || len(p.Samples) > 8 || !learningText(p.Explanation, 2000) || len(p.Uncertainties) > 8 || len(p.Exceptions) > 8 {
 		return errors.New("proposal_invalid")
 	}
@@ -83,6 +105,11 @@ func validateProposal(ctx context.Context, q proposalQuery, p ProposalInput) err
 	bound := r.bounds()
 	if bound == nil || bound.End-bound.Start > 31 {
 		return errors.New("proposal_unbounded")
+	}
+	if declaration != nil {
+		if r.Episodes == nil || declaration.Episodes != *r.Episodes || declaration.Episodes != *bound || !learningText(declaration.Reason, 512) || digestStringJSON(declaration.Absolute) != digestStringJSON(r.Absolute) {
+			return errors.New("proposal_evidence_conflict")
+		}
 	}
 	observed := map[int]bool{}
 	aliasEvidence := map[string]bool{}
@@ -138,7 +165,7 @@ func validateProposal(ctx context.Context, q proposalQuery, p ProposalInput) err
 		}
 	}
 	for n := bound.Start; n <= bound.End; n++ {
-		if !observed[n] {
+		if !observed[n] && declaration == nil {
 			return errors.New("proposal_unbounded")
 		}
 	}
@@ -295,7 +322,11 @@ func (s *Store) ProposalList(ctx context.Context, after int64) ([]RuleProposal, 
 }
 
 // ReviseProposal 只有本机人工可调用；旧版本转stale，新正文作为独立revision保存。
-func (s *Store) ReviseProposal(ctx context.Context, id string, rev, version int, in ProposalInput) (RuleProposal, error) {
+func (s *Store) ReviseProposal(ctx context.Context, id string, rev, version int, in ProposalInput, declarations ...*ScopeDeclaration) (RuleProposal, error) {
+	var declaration *ScopeDeclaration
+	if len(declarations) > 0 {
+		declaration = declarations[0]
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return RuleProposal{}, err
@@ -313,7 +344,7 @@ func (s *Store) ReviseProposal(ctx context.Context, id string, rev, version int,
 	}
 	in.Rule.ID = id
 	in.Rule.Revision = rev + 1
-	if err = validateProposal(ctx, tx, in); err != nil {
+	if err = validateProposal(ctx, tx, in, declaration); err != nil {
 		return p, err
 	}
 	if _, err = tx.ExecContext(ctx, `UPDATE rule_proposals SET state='stale',version=version+1 WHERE id=? AND revision=?`, id, rev); err != nil {
@@ -322,9 +353,14 @@ func (s *Store) ReviseProposal(ctx context.Context, id string, rev, version int,
 	if err = proposalAuditTx(ctx, tx, p, "proposal_revised"); err != nil {
 		return p, err
 	}
-	p = RuleProposal{ID: id, Revision: rev + 1, Version: 1, State: "pending", Origin: "human", CreatedAt: time.Now().Unix(), Input: in}
+	p = RuleProposal{ID: id, Revision: rev + 1, Version: 1, State: "pending", Origin: "human", CreatedAt: time.Now().Unix(), Input: in, ScopeDeclaration: declaration}
 	if err = putProposalTx(ctx, tx, p); err != nil {
 		return p, err
+	}
+	if declaration != nil {
+		if err = proposalAuditTx(ctx, tx, p, "proposal_scope_declared"); err != nil {
+			return p, err
+		}
 	}
 	return p, tx.Commit()
 }
@@ -335,7 +371,7 @@ func trialProposal(ctx context.Context, tx *sql.Tx, p RuleProposal) (ProposalTri
 	if p.State != "pending" {
 		return t, errors.New("proposal_stale")
 	}
-	if err := validateProposal(ctx, tx, p.Input); err != nil {
+	if err := validateProposal(ctx, tx, p.Input, p.ScopeDeclaration); err != nil {
 		return t, err
 	}
 	if err := tx.QueryRowContext(ctx, `SELECT value FROM naming_epoch WHERE id=1`).Scan(&t.Epoch); err != nil {
@@ -351,6 +387,7 @@ func trialProposal(ctx context.Context, tx *sql.Tx, p RuleProposal) (ProposalTri
 		samples = append(samples, v)
 		seen[ref.SampleID] = true
 	}
+
 	rows, err := tx.QueryContext(ctx, `SELECT body FROM learning_samples ORDER BY seq DESC LIMIT 101`)
 	if err != nil {
 		return t, err
@@ -484,6 +521,27 @@ func trialProposal(ctx context.Context, tx *sql.Tx, p RuleProposal) (ProposalTri
 				t.Results = append(t.Results, result)
 			}
 		}
+	}
+	// 已验证仅来自本次准确coverage里的matched事实，不把声明当试算结果。
+	if p.ScopeDeclaration != nil {
+		scope := p.ScopeDeclaration
+		review := &ScopeReview{VerifiedEpisodes: []int{}, DeclaredEpisodes: scope.Episodes, UnverifiedEpisodes: []int{}, Reason: scope.Reason, Absolute: scope.Absolute}
+		verified := map[int]bool{}
+		for _, result := range t.Results {
+			if result.Outcome == "matched" {
+				if semantics := targetSemantics(result.Target); semantics != nil {
+					verified[semantics.Episode] = true
+				}
+			}
+		}
+		for n := scope.Episodes.Start; n <= scope.Episodes.End; n++ {
+			if verified[n] {
+				review.VerifiedEpisodes = append(review.VerifiedEpisodes, n)
+			} else {
+				review.UnverifiedEpisodes = append(review.UnverifiedEpisodes, n)
+			}
+		}
+		t.ScopeReview = review
 	}
 	t.Digest = digestStringJSON(t)
 	return t, nil

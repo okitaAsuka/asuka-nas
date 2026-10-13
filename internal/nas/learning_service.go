@@ -11,6 +11,7 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -144,6 +145,11 @@ func LearningHandler(s *Store, token, host string) http.Handler {
 
 // proposalAPI 已经过管理Host/Origin/CSRF/单写门；保留前端独立owner。
 func (m *Management) proposalAPI(w http.ResponseWriter, r *http.Request, p string) bool {
+	// 服务Bearer绝不是人工归属；即使附带本机nonce也拒绝进入候选审核入口。
+	if strings.HasPrefix(p, "proposal") && r.Header.Get("Authorization") != "" {
+		apiError(w, 403, "csrf_rejected")
+		return true
+	}
 	s := m.Daemon.Engine.Store
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
@@ -242,22 +248,27 @@ func (m *Management) proposalAPI(w http.ResponseWriter, r *http.Request, p strin
 		return false
 	}
 	var in struct {
-		ID       string         `json:"id"`
-		Revision int            `json:"revision"`
-		Version  int            `json:"version"`
-		Input    *ProposalInput `json:"input,omitempty"`
-		Epoch    int64          `json:"epoch,omitempty"`
-		Digest   string         `json:"digest,omitempty"`
+		ID               string            `json:"id"`
+		Revision         int               `json:"revision"`
+		Version          int               `json:"version"`
+		Input            *ProposalInput    `json:"input,omitempty"`
+		Epoch            int64             `json:"epoch,omitempty"`
+		Digest           string            `json:"digest,omitempty"`
+		ScopeDeclaration *ScopeDeclaration `json:"scope_declaration,omitempty"`
 	}
 	e := decodeRequest(w, r, &in)
 	var out any = map[string]bool{"ok": true}
 	if e == nil {
+		if p != "proposal-revise" && in.ScopeDeclaration != nil {
+			apiError(w, 409, "invalid_request")
+			return true
+		}
 		switch p {
 		case "proposal-revise":
 			if in.Input == nil {
 				e = errors.New("invalid_request")
 			} else {
-				out, e = s.ReviseProposal(ctx, in.ID, in.Revision, in.Version, *in.Input)
+				out, e = s.ReviseProposal(ctx, in.ID, in.Revision, in.Version, *in.Input, in.ScopeDeclaration)
 			}
 		case "proposal-preview":
 			out, e = s.PreviewProposal(ctx, in.ID, in.Revision, in.Version)
