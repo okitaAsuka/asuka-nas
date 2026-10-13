@@ -84,4 +84,7 @@ Go 测试设计使用真实 Chromium、生产 Management 的 Host/Origin/CSRF �
 
 NAS automatic请求无可信目录/显示名来源，不能花一次模型调用判断已知必缺facts。agent在NAS check后、reserveModel前确定性生成完整合法unresolved，列缺目录/显示名及待核对季号；不进calling，不增加calls/attempts。人补齐facts再明确请求新建议，或直接人工填表终审，不猜资料、不放松NAS校验。当前界面不把该预检结果假称模型输出；来源仍保守保留辅助历史，不能洗成pure human。
 
-原12场景跨仓证据中automatic/unresolved的calls1现为calls0；其它完整facts场景仍calls1。最新agent相关race、全CI及两仓smoke由最终整合CI绑定新配套SHA执行，历史12场景通过不直接代替成本变化复验。
+原12场景跨仓证据中automatic/unresolved的calls1现为calls0；其它完整facts场景仍calls1。最新agent相关race、全CI及两仓smoke由agent自身CI固定公开NAS SHA执行，历史12场景通过不直接代替成本变化复验。
+
+
+跨仓CI权限说明：NAS仓的默认GitHub CI身份无法读agent仓（checkout返回Repository not found），没有扩权或创建token。改由agent自身CI读取公开NAS固定SHA，运行naslearning相关race与12场景smoke；NAS完整Go/UI门和独立package门保留。失败、权限阻塞或未运行项均不记为通过，最终结果由交付回复绑定。

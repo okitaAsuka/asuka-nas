@@ -18,7 +18,7 @@
 | LAN管理登录/鉴权、TVDB/在线元数据 | 未实现；只回环。已有授权SSH隧道仅访问候选，不是已验部署 |
 | 真实RSS/qB/Emby/模型/Discord/NAS/SSH、arm64 | 未部署验收；fake闭环与CI不能代替真实环境 |
 
-集成来源：UI e3d3ef610f626b2de8298e1b682044cd48857652；NAS后端17acfcfe0849f762bfe16f3cc2eb29e20bc920bf只接3f0b933后增量；包装41be7726bb2b8900bf1ca77761773ef335215a1d保留e4bdde7后的全部五提交；agent原配套dd5b2bb06c17845406e7bce986146e1dd6030915后，按父授权小修目录/显示名预检与回归；新配套80834dcf664af482b8aeaf38351222bd5efe6c17。没有main merge/PR/部署或创建凭据。
+集成来源：UI e3d3ef610f626b2de8298e1b682044cd48857652；NAS后端17acfcfe0849f762bfe16f3cc2eb29e20bc920bf只接3f0b933后增量；包装41be7726bb2b8900bf1ca77761773ef335215a1d保留e4bdde7后的全部五提交；agent原配套dd5b2bb06c17845406e7bce986146e1dd6030915后，按父授权小修目录/显示名预检与回归；agent成本代码80834dcf664af482b8aeaf38351222bd5efe6c17；其后CI专用提交的最终配套SHA由交付回复绑定。没有main merge/PR/部署或创建凭据。
 
 验证入口：make verify（Go1.26.9格式/vet/race/build及Python预检），make verify-ui（保留原浏览器门并加入命名生产API测试），make package-test，make package-nas。本机SQLite/libc官方依赖下载Forbidden，本轮生产Go/浏览器由已授权CI执行；未执行或失败不能计为通过。最终运行结果见交付回复及[NAMING_ASSISTANCE_UI_EVIDENCE.md](NAMING_ASSISTANCE_UI_EVIDENCE.md)。CI归档生产浏览器日志/截图及绑定最终SHA的离线包。
 
@@ -140,3 +140,6 @@ schema v4 添加整包目标预约及逐文件 pending/intended/linked/discovere
 本轮不扩功能，未改asuka-agent/未推送/未部署/未外发。原独立管理与浏览器复现纳入仓库，将“缺陷存在”断言改为“正确行为”，HTTP负向矩阵不变，增加容量/回滚邻域测试。原版测试仍保存在审查Library v5；本轮结果与代码供下一轮独立复验，不将自测当外审。
 
 最终验证：118个顶层测试定义（含2个opt-in真实浏览器测试）；make verify及make verify-ui通过。配置容量失败只额外公开固定subscription_limit/subscription_history_limit启动码，未知错误仍不输出原文。
+
+
+跨仓CI权限说明：NAS仓的默认GitHub CI身份无法读agent仓（checkout返回Repository not found），没有扩权或创建token。改由agent自身CI读取公开NAS固定SHA，运行naslearning相关race与12场景smoke；NAS完整Go/UI门和独立package门保留。失败、权限阻塞或未运行项均不记为通过，最终结果由交付回复绑定。
