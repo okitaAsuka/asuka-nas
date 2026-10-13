@@ -21,3 +21,23 @@ jobs:
           sha256sum -c SHA256SUMS
           docker load -i image.tar
           docker run --rm --network none -v "$PWD/config.template.json:/config/config.json:ro" "$(python3 -c 'import json; print(json.load(open("VERSION.json"))["image"])')" -config /config/config.json
+          python3 - <<'PY_CHECK'
+          import json, os
+          from pathlib import Path
+          meta = json.loads(Path('VERSION.json').read_text())
+          assert meta['revision'] == os.environ['GITHUB_SHA'], meta
+          assert meta['platform'] == 'linux/amd64'
+          assert {p.name for p in Path('.').iterdir()} == {'image.tar', 'compose.yaml', 'config.template.json', 'credentials.env.template', '.env', 'DEPLOY.md', 'VERSION.json', 'SHA256SUMS'}
+          config = json.loads(Path('config.template.json').read_text())
+          assert config['subscriptions'] == []
+          assert not config['events']['enabled'] and not config['learning']['enabled'] and not config['learning']['automatic_naming']
+          assert not meta['real_nas_verified'] and not meta['arm64_runtime_verified']
+          print('PASS final SHA, artifact whitelist, default-disabled templates; no user configuration/media/SQLite in package')
+          PY_CHECK
+      - uses: actions/upload-artifact@v4
+        with:
+          name: asuka-nas-${{ github.sha }}-linux-amd64
+          path: |
+            /tmp/nas-package/*.tar.gz
+            /tmp/nas-package/*.tar.gz.sha256
+          retention-days: 14

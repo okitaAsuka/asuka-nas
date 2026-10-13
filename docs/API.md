@@ -1,38 +1,47 @@
-# 当前事件接口与未来远程契约
+# 当前接口与访问边界 / 2026-10-13
 
-当前已实现 `/api` 本机管理与独立只读事件服务。事件服务默认关闭，仅专用回环端口；`Authorization: Bearer <部署env已有值>`，不复用浏览器nonce，不接受Origin/Sec-Fetch-Site，精确Host；无CORS。
+本机管理 `/api`、只读事件 `/v1/events`、有限学习/命名回传 `/v1/learning/*` 与 `/v1/naming/*` 均已实现。它们有不同监听与身份；没有 LAN 管理鉴权，没有远程文件执行/批准 API。以下是当前功能，早期仅内部库/未来 HTTP 的阶段契约不再描述当前状态。
 
-`GET /v1/events?after=123` 固定最多100条，返回 `{"events":[{"id":124,"schema_version":1,"job_id":"32位十六进制标识","kind":"discovered","plan_version":1,"file_index":0}],"next_cursor":124}`。plan/file可省略；空页events=[]且cursor保持after。after必填非负int64；拒绝重复/未知query；无limit参数。401鉴权/浏览器来源、400游标、404其它路径、405写方法、503读取失败。事件与响应没有标题、URL、tracker、绝对源路径、凭据或异常原文。只读服务不确认/重规划任务。
+## 本机管理
 
-配置与配套gateway协议见 [NOTIFICATIONS.md](NOTIFICATIONS.md)。其它`/v1/jobs`/confirmations/preview/confirm仍未实现，下面仅为未来设计。所有早期“无HTTP/gateway/Discord”叙述均为历史记录，不能替代本节。
+`-serve` 在显式 IP 回环监听，默认127.0.0.1:8787；同时启动daemon。管理面是本机单用户，没有登录身份系统。GET `/api/session` 返回进程内 CSRF nonce；POST 必须精确Host/Origin、application/json和X-CSRF-Nonce；没有CORS。服务Bearer不能请求/批准命名或规则建议。64KiB有界请求、单在途写门、CAS/完整快照与指纹由各领域接口再验证。秘密URL、GUID和凭据不返回UI；标题与建议文本安全渲染。
 
-## 未来远程命令设计（未实现）
+已实现路由：
 
-部署时用户提供静态 Bearer token，仅用于本服务；不由开发流程生成。仅可信内网，外部访问需要 TLS。agent 不得直连 SQLite。
+| 路由 | 行为与合同 |
+| --- | --- |
+| GET /api/health | SQLite可读、能力supported/configured_enabled、runtime未知；开关不证明消费者/模型在线 |
+| /api/subscriptions、source-retry | 可用来源引用、订阅启停/CAS及抓取重试；不向浏览器返回秘密URL |
+| /api/jobs、jobs/id、job-action | 下载/入库/刷新/发现/做种独立状态、冻结方案与安全恢复 |
+| /api/rules、rule-preview、rule-state、epoch、audit | 人工不可变版本规则；预览、保存草稿、单独启用 |
+| /api/library-candidates、candidate-rule-preview、candidate-rule | 用户明确所选目录/NFO的有界局部候选，非外部元数据 |
+| /api/batch-preview、batch-confirm、comparisons | 全任务人工表、完整清单指纹与摘要绑定、不可变人工意图和实际执行投影；[批量DTO](BATCH_FRONTEND_HANDOFF.md) |
+| /api/proposals、proposal、proposal-samples、proposal-audit、proposal-revise、proposal-preview、proposal-approve、proposal-reject | agent规则候选及明确人工有限范围/历史试算/终审；[规则建议合同](RULE_PROPOSALS_FRONTEND_HANDOFF.md) |
+| /api/naming、naming-request、naming-preview、naming-confirm、naming-reject | 单任务建议状态/明确facts/完整方案/人工终审与拒绝；[命名合同](NAMING_ASSISTANCE_HANDOFF.md) |
+| /api/events、source-events | 任务与来源固定码分页游标，无标题/URL/异常正文 |
 
-- GET /v1/jobs/{id}: version、download_state、import_state、refresh_state、discovery_state、seed_state、completed_at、stop_at、error_code、block_reason。
-- GET /v1/confirmations: 待确认 job 和 plan version。原始文件名/RSS 上下文只可在鉴权响应中返回，永不进事件/日志；UI 必须转义。
-- POST /v1/jobs/{id}/preview: 明确 title/season/episode（不猜季度），返回 version、plan digest、文件指纹、相对目标。
-- POST /v1/jobs/{id}/confirm: version + plan digest，绑定完整文件集合；过期 409、指纹变化 412、路径错误 422、冲突 409。确认只批准该方案，执行仍校验文件。
-- GET /v1/events 已按本页顶部只读契约实现；不接受此历史设计的limit参数。
+命名snapshot的semantic_digest绑定完整清单、上下文、parser/规则epoch与人工计划；job_version仅采集审计，做种等正交变化不废弃建议。preview以当前任务CAS重建完整方案，编辑或旧preview摘要不能批准。snapshot.trigger=human/automatic只表示入队来源，不是授权来源；Plan.naming_review由NAS区分建议审核与独立人工batch。拒绝/过期/离线可直接人工batch，不需要新模型请求；辅助历史仍保留model_assisted_human且不能进入纯人工学习。
 
-事件类型：resource_seen、download_requested、download_submitted、download_completed、needs_confirmation、plan_ready、plan_confirmed、imported、refresh_requested、discovered、seed_stopped、operation_failed。
-事件只包含不透明 job ID 与固定类型，不包含 URL、标题、token、原始异常。
-Discord、远程命名建议提交、鉴权 listener 和持久消费 cursor API 都后置，当前 Store.Events(after) 已可重放。
+## 专用只读事件服务
 
+`events.enabled`默认false；独立回环监听默认127.0.0.1:8788。Authorization使用部署者已有环境变量值，不复用管理nonce；精确Host，拒绝Origin/Sec-Fetch-Site，无CORS。
 
-实现补充（无 HTTP listener）：`Store.SourceEvents(after)` 返回独立来源事件游标，字段 id/subscription/kind/created_at，kind 为 poll_succeeded/poll_failed。订阅 ID 是配置内非秘密标识；无 URL/错误原文。job 事件新增 attempt_started/retry_scheduled/retry_cleared。HTTP 路由和鉴权仍是契约，不应将内部方法当已部署接口。
+`GET /v1/events?after=123` 固定最多100条：
 
-N1 内部契约：Job 增加 naming_epoch/context_version/checked_context；Plan 增加 rule_epoch/context_version/decision/rule_refs/started，digest 包含规则快照引用与来源版本，排除 approved/started 两个生命周期标记。新事件 source_context_added、source_context_checked、late_mapping_conflict、naming_retry_ready、plan_stale、plan_invalidated、import_started。plan_history 保存每个 plan_ready 的不可变完整方案。规则审计 naming_events 是独立递增游标表（本阶段无对外读取接口），只含 rule_id/revision/kind/created_at，kind 为 rule_drafted/rule_enabled/rule_disabled。相关本地 CLI 和边界见 NAMING.md；gateway 确定性通知仍待下一阶段实现。
+```json
+{"events":[{"id":124,"schema_version":1,"job_id":"opaque-job-id","kind":"discovered","plan_version":1,"file_index":0}],"next_cursor":124}
+```
 
+after必填非负int64；拒绝重复/未知参数，无limit；空页cursor保持。plan/file可省略。响应和事件无标题、URL、tracker、绝对源路径、凭据或原始异常。只读服务不能批准/重规划任务。配套gateway持久重放、固定Discord通知、故障恢复已实现，真实Discord外发仍未验；见[NOTIFICATIONS.md](NOTIFICATIONS.md)。
 
-N3/N4 内部契约：Plan 新增 collection、decisions（逐视频决定）、manifest（所有源指纹）、manual（人工计划语义）、evidence（订阅与标题摘要），全部参与摘要与不可变历史。Store.FileExecutions(job,version) 返回序号/state/video/discovered；events 增加可空 plan_version/file_index，新增 file_intent/file_linked/video_discovered/mapping_conflict_cleared。最终 discovered 仅在所有视频确认后产生一次；HTTP/gateway/Discord 仍未实现。
+## 专用学习 / 命名服务
 
-复验修复：schema v5 / parser v3；新增固定阻塞码与事件 legacy_evidence_unresolved。legacy_plan_evidence 仅补充可证明的旧计划语义，不改变对外 Plan digest。该阻塞下做种截止仍执行，导入与媒体确认暂停；已导入历史状态保持，不能当作当前 ready。
+`learning.enabled`默认false；独立回环监听默认127.0.0.1:8789，使用与events分开的已有服务身份。只能读取有界学习样本/明确授权或opt-in命名快照、check当前依据、提交有限候选结果；服务身份永远不能人工终审或执行文件。
 
-NamingRule 新增可选 identity_normalization_version：新建写1，历史缺省0只读兼容，未知版本以 rule_normalization_unresolved 阻塞。字段不写回历史规则，也不改变历史Plan摘要；schema保持5。
+学习API见[RULE_PROPOSALS_FRONTEND_HANDOFF.md](RULE_PROPOSALS_FRONTEND_HANDOFF.md)。命名API为GET `/v1/naming/requests?after=N`（每页最多8），POST `/v1/naming/check` 与 `/v1/naming/results`。NAS先持久不可变结果再ACK；同结果重放返回收据，不同结果拒绝。result仅含有限目录/显示名/逐文件季集与依据/不确定项，没有脚本、工具或规则自动启用字段。
 
+`learning.automatic_naming`默认false，开启必须同时启用learning服务；agent的独立nas_naming默认关闭、独立SQLite owner与有界持久预算。规则优先，支持的待确认任务每语义快照只自动入队一次；拒绝/未解不会自动再次请求，离线不影响做种。无明确目录/显示名/季号返回unresolved。NAS schema8/parser v4，agent保护schema1；仅未部署开发库迁移，不授权生产升级。
 
-## 本机批量组织与对比记录（schema6）
+## 尚未实现 / 未验
 
-此处仅本机管理CSRF入口，与远程只读事件服务不同：`POST /api/batch-preview`、`POST /api/batch-confirm`、`GET /api/comparisons?id={jobID}&after={planVersion}`。完整JSON、固定错误码与版本绑定见BATCH_FRONTEND_HANDOFF.md；本轮未增加远程写入口、模型或agent消费。不可变意图和执行投影、限额、未知语义及未来待审规则契约见BATCH_AGENT_CONTRACT.md。
+没有 `/v1/jobs/*`、远程preview/confirmations/批准或通用agent工具接口；没有TVDB/在线元数据搜索；没有LAN身份鉴权/TLS入口。导入离线包不会使管理页可直接LAN访问。已有授权SSH同端口回环隧道只是一种访问候选，真实NAS/SSH/上游服务与模型均未部署验收；见[PACKAGING.md](PACKAGING.md)。

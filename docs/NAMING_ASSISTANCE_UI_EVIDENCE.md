@@ -1,4 +1,18 @@
-# 单任务命名辅助 UI 候选 / 2026-10-13
+# 命名 UI 与最终整合证据 / 2026-10-13
+
+## 本轮整合（覆盖下方首版限制）
+
+唯一writer在UI e3d3ef610f626b2de8298e1b682044cd48857652之后接入NAS后端17acfcfe0849f762bfe16f3cc2eb29e20bc920bf的两次增量（9288389、17acfcf）；首版3f0b933不重复。包装41be7726bb2b8900bf1ca77761773ef335215a1d相对e4bdde7的五次提交全部cherry-pick保留；agent配套dd5b2bb06c17845406e7bce986146e1dd6030915不改。最终SHA和CI/包链接在交付回复绑定，不在提交内循环引用。
+
+更新UI：显示human/automatic触发与尚无结果；缺资料可补facts重试或直接填表；拒绝/过期/离线普通batch恢复启用，主动“改用独立人工整理”也可用。来源永久保留；普通人工fallback不改变原建议终态。做种导致的preview CAS过期会重读当前任务、保留同一建议和草稿，只需重新preview，不要求再次模型请求。health只显示支持、配置和未知运行状态；唯一Go小修为该投影与测试，没有改变命名/文件业务不变量。
+
+README/STATUS/LOCAL_MANAGEMENT/API及默认关闭配置样例统一当前实现；包装模板补automatic_naming:false。LAN仍回环，用户已有授权SSH仅访问候选，未声称已验真实部署。Makefile保留原Go/UI/包装门，新增独立mock和生产TestNamingAssistanceBrowserLoop；CI归档日志/截图，packageCI归档校验过的最终SHA包及SHA清单。
+
+生产浏览器夹具扩至8场景：primary完整4清单/3硬链接；unresolved补充新请求；manual_unresolved不再次调用模型直接naming审核；automatic真实opt-in入队并可查看/人工填表批准；rejected保持拒绝且普通batch入库；offline服务503直接batch；stale来源变化后直接batch；seed建议预览后独立stop，旧preview拒绝、保留原建议重新preview批准。逐项os.SameFile、fakeEmby发现、model_assisted_human来源、全部辅助历史不进入LearningSamples、离线无结果不伪造result_digest、拒绝SQLite reopen均有断言。保留旧响应/取消/reset/导航、静默编辑、旧digest与双击、安全文本/键盘/390px回归。
+
+本机官方Go1.26.9工具链已核验；SQLite/libc下载仍Forbidden；gh的REST读取也Forbidden，使用已连接GitHub只读Actions接口核对CI，不绕过网络限制。本机package-test10项、mock浏览器/语法/diff可实际执行，生产Go/UI与Docker构建必须以已授权CI实际结果为准。上一UI SHA的旧CI成功不包含新浏览器入口，不能当本次验收。最终CI结果见交付回复；失败/跳过不计为通过。后端12场景跨仓smoke已由其owner在最终版本执行，见NAMING_ASSISTANCE_EVIDENCE；本轮仅UI/健康投影/集成未改业务不变量，不重复模型smoke。
+
+## 首版交付记录（历史，以下阻塞与旧退路已被本轮合同覆盖）
 
 ## 版本与写入边界
 

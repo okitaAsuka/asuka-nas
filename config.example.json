@@ -17,5 +17,11 @@
     "enabled": false,
     "listen": "127.0.0.1:8788",
     "token_env": "ASUKA_NAS_EVENTS_TOKEN"
+  },
+  "learning": {
+    "enabled": false,
+    "listen": "127.0.0.1:8789",
+    "token_env": "ASUKA_NAS_LEARNING_TOKEN",
+    "automatic_naming": false
   }
 }

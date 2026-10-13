@@ -25,7 +25,7 @@ func TestNamingAssistanceBrowserLoop(t *testing.T) {
 	fixtures := map[string]*fixture{}
 	urls := map[string]string{}
 	services := map[string]*httptest.Server{}
-	for _, name := range []string{"primary", "unresolved", "manual_unresolved", "rejected", "offline"} {
+	for _, name := range []string{"primary", "unresolved", "manual_unresolved", "rejected", "offline", "automatic", "stale", "seed"} {
 		var f *fixture
 		if name == "primary" || name == "offline" {
 			f, _ = batchFixture(t)
@@ -33,7 +33,16 @@ func TestNamingAssistanceBrowserLoop(t *testing.T) {
 			f = namingFixture(t)
 		}
 		fixtures[name] = f
-		_, web := managementFixture(t, f)
+		if name == "automatic" {
+			if err := namingDaemon(f, true).TickJobs(ctx, time.Unix(1001, 0)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		m, web := managementFixture(t, f)
+		if name == "automatic" {
+			m.Daemon.Config.Learning.Enabled = true
+			m.Daemon.Config.Learning.AutomaticNaming = true
+		}
 		urls[name] = web.URL
 		service := httptest.NewUnstartedServer(nil)
 		service.Config.Handler = LearningHandler(f.store, learningFixtureToken, service.Listener.Addr().String(), f.engine)
@@ -147,6 +156,30 @@ func TestNamingAssistanceBrowserLoop(t *testing.T) {
 				fail(fmt.Errorf("result status %d %s", res.StatusCode, output))
 				return
 			}
+		case "stop-seed":
+			if e := f.engine.Tick(ctx, time.Unix(f.job().StopAt, 0)); e != nil {
+				fail(e)
+				return
+			}
+			current, e := f.engine.NamingReviews(ctx, f.job().ID)
+			if e != nil || len(current) != 1 || current[0].State != "suggested" || f.job().Seed != "stopped" {
+				fail(fmt.Errorf("seeding invalidated suggestion %v", e))
+				return
+			}
+		case "stale":
+			if e := f.store.AttachResourceTitle(ctx, "fixture", "private-guid", "Example additional [01]"); e != nil {
+				fail(e)
+				return
+			}
+		case "assert-no-requeue":
+			if e := namingDaemon(f, true).TickJobs(ctx, time.Unix(1003, 0)); e != nil {
+				fail(e)
+				return
+			}
+			if requestCount(t, f) != 1 {
+				fail(fmt.Errorf("fallback requeued naming"))
+				return
+			}
 		case "assert-offline":
 			res, e := services[parts[0]].Client().Get(services[parts[0]].URL + "/v1/naming/requests?after=0")
 			if e != nil {
@@ -218,14 +251,24 @@ func TestNamingAssistanceBrowserLoop(t *testing.T) {
 	if reopenErr != nil || len(reopened) != 1 || reopened[0].State != "rejected" {
 		t.Fatal("rejection lost after reopen", reopenErr)
 	}
-	for _, name := range []string{"primary", "unresolved", "manual_unresolved", "offline"} {
+	for _, name := range []string{"primary", "unresolved", "manual_unresolved", "offline", "rejected", "automatic", "stale", "seed"} {
 		f := fixtures[name]
 		j := f.job()
 		if j.Import != "imported" || j.Discovery != "confirmed" || len(comparisons(t, f)) != 1 {
 			t.Fatal("false browser completion", name, j)
 		}
-		if name != "offline" && comparisons(t, f)[0].Intent.Origin != "model_assisted_human" {
+		if comparisons(t, f)[0].Intent.Origin != "model_assisted_human" {
 			t.Fatal("model origin lost", name)
+		}
+		samples, sampleErr := f.store.LearningSamples(ctx, 0)
+		if sampleErr != nil || len(samples.Items) != 0 {
+			t.Fatal("assistance history washed into learning", name, sampleErr)
+		}
+		if name == "seed" && j.Seed != "stopped" {
+			t.Fatal("seed stop lost", j)
+		}
+		if name == "offline" && comparisons(t, f)[0].Intent.Assistance.ResultDigest != "" {
+			t.Fatal("invented model result")
 		}
 		for _, p := range j.Plan.Files {
 			src, e := os.Stat(filepath.Join(f.downloads, p.Source))

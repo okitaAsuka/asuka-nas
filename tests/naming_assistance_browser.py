@@ -107,13 +107,20 @@ with sync_playwright() as p:
     preview();page.locator('[name=naming_approval]').check();confirm.click()
     expect(page.get_by_text('计划已批准',exact=True)).to_be_visible()
     fixture('unresolved','execute');fixture('unresolved','discover')
-    open_case('manual_unresolved');page.get_by_role('button',name='请求命名建议').click()
-    fixture('manual_unresolved','unresolved');refresh()
-    expect(page.locator('[data-naming-state]')).to_contain_text('依据不足')
-    for name,value in [('batch_directory','Manual'),('batch_display_name','Manual'),('batch_season','2'),('batch_episode','1')]:page.locator(f'[name={name}]').fill(value)
-    preview();page.locator('[name=naming_approval]').check();confirm.click()
-    expect(page.get_by_text('计划已批准',exact=True)).to_be_visible()
-    fixture('manual_unresolved','execute');fixture('manual_unresolved','discover')
+    for case in ['manual_unresolved','automatic']:
+        open_case(case)
+        if case=='manual_unresolved':page.get_by_role('button',name='请求命名建议').click()
+        else:
+            expect(page.locator('.naming-evidence')).to_contain_text('自动入队（已配置启用）')
+            expect(page.locator('[name=naming_season]')).to_have_value('')
+        fixture(case,'unresolved');refresh()
+        expect(page.locator('[data-naming-state]')).to_contain_text('依据不足')
+        count=writes.count('naming-request')
+        for name,value in [('batch_directory','Manual'),('batch_display_name','Manual'),('batch_season','2'),('batch_episode','1')]:page.locator(f'[name={name}]').fill(value)
+        preview();page.locator('[name=naming_approval]').check();confirm.click()
+        expect(page.get_by_text('计划已批准',exact=True)).to_be_visible()
+        fixture(case,'execute');fixture(case,'discover');fixture(case,'assert-no-requeue')
+        assert writes.count('naming-request')==count
     open_case('rejected');hints();page.get_by_role('button',name='请求命名建议').click()
     fixture('rejected','suggest');refresh()
     expect(page.get_by_role('button',name='人工拒绝本次建议')).to_be_disabled()
@@ -122,6 +129,11 @@ with sync_playwright() as p:
     expect(page.locator('[data-naming-state]')).to_contain_text('已人工拒绝')
     count=writes.count('naming-request');page.wait_for_timeout(5200);refresh();assert writes.count('naming-request')==count
     fixture('rejected','assert-rejected')
+    for name,value in [('batch_directory','Fallback'),('batch_display_name','Fallback'),('batch_season','2'),('batch_episode','1')]:page.locator(f'[name={name}]').fill(value)
+    preview();page.get_by_role('button',name='确认整表方案').click()
+    expect(page.get_by_text('计划已批准',exact=True)).to_be_visible()
+    fixture('rejected','execute');fixture('rejected','discover');fixture('rejected','assert-no-requeue')
+    assert writes.count('naming-request')==count
     open_case('offline');page.get_by_role('button',name='请求命名建议').click()
     expect(page.locator('[data-naming-state]')).to_contain_text('已请求')
     fixture('offline','assert-offline')
@@ -131,6 +143,30 @@ with sync_playwright() as p:
     preview();page.get_by_role('button',name='确认整表方案').click()
     expect(page.get_by_text('计划已批准',exact=True)).to_be_visible()
     fixture('offline','execute');fixture('offline','discover')
+    count=writes.count('naming-request');fixture('offline','assert-no-requeue');assert writes.count('naming-request')==count
+    for case in ['stale','seed']:
+        open_case(case);hints();page.get_by_role('button',name='请求命名建议').click()
+        fixture(case,'suggest');refresh();page.get_by_role('button',name='载入完整建议到编辑表').click()
+        expect(page.locator('[name=batch_episode]')).to_have_value('1')
+        count=writes.count('naming-request')
+        if case=='stale':
+            fixture(case,'stale');refresh()
+            expect(page.locator('[data-naming-state]')).to_contain_text('依据已过期')
+            preview();page.get_by_role('button',name='确认整表方案').click()
+        else:
+            preview();fixture(case,'stop-seed')
+            page.locator('[name=naming_approval]').check();confirm.click()
+            expect(page.locator('[data-naming-status]')).to_contain_text('任务状态已更新')
+            expect(page.locator('[data-naming-state]')).to_contain_text('建议待审核')
+            expect(page.locator('[name=batch_episode]')).to_have_value('1')
+            preview();page.locator('[name=naming_approval]').check();confirm.click()
+        expect(page.get_by_text('计划已批准',exact=True)).to_be_visible()
+        fixture(case,'execute');fixture(case,'discover');fixture(case,'assert-no-requeue')
+        assert writes.count('naming-request')==count
+        page.get_by_role('button',name='刷新状态').click();page.get_by_role('button',name='查看对比记录').click()
+        expect(page.locator('.comparison-record')).to_contain_text('model_assisted_human')
+    page.get_by_role('button',name='健康与接入',exact=True).click()
+    expect(page.get_by_text('agent运行状态未知；以任务建议列表核对结果',exact=True)).to_be_visible()
     assert not exceptions,exceptions
     print('PASS unresolved supplement, rejection without requeue/restart, offline manual fallback, safe text, keyboard and 390px')
     browser.close()

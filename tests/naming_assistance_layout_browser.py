@@ -124,7 +124,7 @@ try:
         page.get_by_role('button',name='人工拒绝本次建议').evaluate('(b)=>{b.click();b.click()}')
         expect(page.locator('[data-naming-state]')).to_contain_text('已人工拒绝')
         count=len(posts);page.wait_for_timeout(5200);assert len(posts)==count
-        expect(page.get_by_role('button',name='预览完整整理表')).to_be_disabled()
+        expect(page.get_by_role('button',name='预览完整整理表')).to_be_enabled()
         assert not errors,errors
         print('PASS MOCK ONLY: real Chromium request/suggestion/edit/double click/silent mutation/cancel/reset/navigation/safe text/keyboard/390px/rule draft')
         browser.close()

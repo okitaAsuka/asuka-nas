@@ -8,24 +8,24 @@ asuka-nas -serve -config /absolute/path/config.json
 # 可选 -listen 127.0.0.1:其它端口 或 [::1]:端口
 ```
 
-`-serve` 同时运行 RSS/job 循环；`-run` 仅运行 daemon，无管理端口。两者与 rules CLI 使用同一实例锁，锁先于可写 SQLite 打开/迁移。仅允许 IP 字面量回环地址，禁止 `0.0.0.0`、`::`、LAN IP、域名。纯本机单用户是明确的信任边界；管理面目前没有用户登录；NAS另有默认关闭的专用回环认证只读事件服务，凭据不复用管理nonce，见 NOTIFICATIONS.md。不要通过反向代理、SSH 隧道给其他人或 Docker 端口映射暴露管理面。网络部署需另行实现身份认证、TLS 和权限，不是“内网即安全”。
+`-serve` 同时运行 RSS/job 循环；`-run` 仅运行 daemon，无管理端口。两者与 rules CLI 使用同一实例锁，锁先于可写 SQLite 打开/迁移。仅允许 IP 字面量回环地址，禁止 `0.0.0.0`、`::`、LAN IP、域名。纯本机单用户是明确的信任边界；管理面目前没有用户登录；NAS另有默认关闭的专用回环认证只读事件服务，凭据不复用管理nonce，见 NOTIFICATIONS.md。不要通过反向代理或 Docker 端口映射暴露管理面。用户已有授权SSH可建立仅自己使用、同端口回环绑定的隧道（见PACKAGING.md）；不提供给他人，不声称真实NAS/SSH已验。网络部署需另行实现身份认证、TLS 和权限，不是“内网即安全”。
 
 ## 操作
 
 - **订阅**：首次从配置的 subscriptions 导入 ID 对应档案并启用。页面新增订阅只能引用已有档案；秘密 RSS URL 不返回浏览器。改 URL/授权来源需要改本地配置并重启。启停、显示名与版本持久化；已有资源的订阅禁止换档案。停用保留所有历史和任务，做种到期停止仍执行。重试抓取解除该来源的退避，下个轮询执行。
 - **规则**：可从用户明确选择的媒体相对系列目录/NFO提取局部候选，再确认系列稳定 ID、集序、订阅/别名、明确季号及目录；需要时指定有限相对/总集范围。预览不写库；保存生成不可变草稿，启用是单独操作。已有版本载入后创建新 revision，不编辑历史。停用规则继续阻止已知身份退回猜测。一次方案确认不授予规则自动执行权限。
 - **任务**：列表每页100条，按任务ID稳定游标；筛选只针对本页。详情显示来源证据（最多100条）、阶段、做种期限、计划、指纹、逐文件进度和 Emby 发现。RSS 标题以纯文本渲染。Emby 刷新成功不等于就绪。
-- **预览/确认**：只给完整单视频清单人工预览，字幕随视频冻结；合集使用明确有界规则。确认绑定 job version、plan version、digest；指纹/路径/冲突在执行前再次验证。部分执行后的计划不能重新规划或移动历史文件。
+- **预览/确认**：支持完整单视频人工预览，以及完整合集的批量人工表；关联字幕随视频冻结。确认绑定 job version、plan version、digest；指纹/路径/冲突在执行前再次验证。部分执行后的计划不能重新规划或移动历史文件。
 - **重试**：只解除退避，不重置下载、文件、规则或计划。临时权限/Emby问题纠正后可安全恢复。已冻结证据冲突、legacy_evidence_unresolved、特殊篇/不支持清单仍需人工诊断；本版没有绕过安全门的“强制完成”。
-- **事件/健康**：任务/来源分流游标，规则审计最近100条。规则列表最多500版本。NAS认证只读事件与agent固定通知已实现但未真实连接；目录/NFO局部候选已实现，元数据与模型未接入；页面明确标识。数据库健康不是 NAS 挂载或外部服务健康证明。
+- **事件/健康**：任务/来源分流游标，规则审计最近100条。规则列表最多500版本。认证事件通知、agent规则候选和命名辅助均已实现但真实外部服务未验；健康页分别显示支持、配置开启/关闭及未知运行状态，不从开关推断连接。TVDB/在线元数据搜索未实现。数据库健康不是 NAS 挂载或外部服务健康证明。
 
-## API（当前实现 /api，原 /v1 是未来 agent 契约）
+## API（本机 /api 与独立只读/有限结果回传 /v1）
 
 所有响应 `no-store`，无 CORS。GET `/api/session` 返回进程内 CSRF nonce；POST 必须精确 Host、Origin、`Content-Type: application/json` 和 `X-CSRF-Nonce`。拒绝跨站 fetch；CSP 禁止内联脚本/框架嵌入。nonce 不持久化、不充当部署鉴权 token。请求体64KiB，写操作最多1个在途，多余429；领域错误409（固定码，原始异常不出站）。读列表有上限；写操作用旧版本拒绝过期操作。
 
 | 方法/路径 | 作用 |
 |---|---|
-| GET /api/health | 数据库与未接入能力状态 |
+| GET /api/health | 数据库、能力支持/配置、未知运行状态；不做外部探测 |
 | GET/POST /api/subscriptions | 来源引用列表；新增(version=0)或CAS编辑 |
 | POST /api/source-retry | id+version，解除来源退避并审计 |
 | GET /api/jobs?after=id | 每页100；next为空则结束 |
@@ -44,7 +44,7 @@ asuka-nas -serve -config /absolute/path/config.json
 
 `job-action.preview` 额外 source/target；confirm 额外 plan_version/digest。UI每次操作保存时禁用写按钮；导航和预览的响应都校验 generation，旧响应不能覆盖新页面。服务器版本校验提供第二层保护。
 
-管理状态是领域 schema5 之外的 additive 控制扩展 v2（control_meta、control_profiles、managed_subscriptions、control_events）；独立迁移不重写历史 Plan。升级前备份整个关闭后的 SQLite；不要降级到不理解持久订阅启停的旧二进制。缺失的来源档案显示不可用并跳过抓取，已有任务仍按原计划执行。
+管理状态是领域 schema8 之外的 additive 控制扩展 v2（control_meta、control_profiles、managed_subscriptions、control_events）；独立迁移不重写历史 Plan。升级前备份整个关闭后的 SQLite；不要降级到不理解持久订阅启停的旧二进制。缺失的来源档案显示不可用并跳过抓取，已有任务仍按原计划执行。
 
 ## 验证
 
@@ -81,8 +81,14 @@ asuka-nas -serve -config /absolute/path/config.json
 所有阻塞都保留源文件、不覆盖目标；做种期限独立，不因为目录候选、规则修改或通知失败而延长。
 
 
-## 单任务批量整理（后端候选，前端独立集成中）
+## 完整任务批量整理与命名辅助（已整合）
 
 本机`POST /api/batch-preview`仅返回全清单人工方案；`batch-confirm`绑定job/plan版本、digest与全清单指纹，在同一事务保存批准与不可变对比记录。逐行明确集号、有界offset提取、显式确认表序后连续编号；不推断现实季号。`GET /api/comparisons?id=...&after=...`按job分页查看原始意图及实际文件状态。未开始方案可修改，已开始只恢复原冻结方案。预览取消不生成样本，全部Emby确认才整包完成。原下载文件不rename/删除/覆盖，做种独立。
 
-UI草稿/DTO交接见BATCH_FRONTEND_HANDOFF.md，具体限额、隐私及后续人审契约见BATCH_AGENT_CONTRACT.md。agent学习和候选回传未实现；任何高置信度均不能绕过人工终审。
+批量DTO见BATCH_FRONTEND_HANDOFF.md；规则学习候选已实现，见RULE_PROPOSALS_FRONTEND_HANDOFF.md。任何高置信度不能绕过人工终审。
+
+命名辅助入口：GET /api/naming?job_id=...；POST /api/naming-request（job_id/job_version/hints/retry）、naming-preview（id/version/可选organization）、naming-confirm（id/version/digest）、naming-reject（id/version）。完整合同见NAMING_ASSISTANCE_HANDOFF.md。requested仅表示请求已保存，不证明agent在线/模型运行。
+
+learning.automatic_naming默认false。显式开启后支持的待确认任务自动入队；界面区分automatic/human入口，缺目录、显示名或明确季号列unresolved。人可直接填BatchOrganization，经naming-preview/confirm批准，无需再次调用模型；也可明确补facts重试，最多3份请求。做种停止不使建议过期；若发生在preview后，重新完整preview即可复用结果。真正命名语义变化才stale。
+
+拒绝、过期或离线后可直接普通batch-preview/confirm，不需要新模型请求。模型结果与拒绝状态不被人工fallback改写；所有辅助历史保留model_assisted_human来源并排除纯人工学习。已批准任务可显式复用已确认目录/名称/季号为规则草稿，别名/订阅/有限范围需人工核对，再独立预览/保存/启用。

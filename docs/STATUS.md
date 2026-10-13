@@ -1,28 +1,28 @@
 # 当前状态 / 2026-10-13
 
-当前功能以本节和代码为准。后文是历史阶段记录，其中“未实现”只描述当时。NAS领域schema7/控制扩展v2/parser v4；schema7新增学习样本feed和待审候选/审计（schema6人工对比保持不可变）；远端开发分支已可推送并运行CI；仍未部署或做真实服务验收。
+当前行为以本节、最新合同与代码为准；后文是历史里程碑，不是当前未实现清单。NAS领域schema8、控制扩展v2、parser v4；均为未部署开发库迁移，不授权生产库升级。当前集成分支为 codex/nas-naming-ui-20261013，最终 SHA、CI 和包校验由交付回复绑定。
 
 | 能力 | 当前状态 |
 | --- | --- |
-| RSS magnet/enclosure → qB 5.x 下载/去重 | 已实现，fake HTTP验收 |
-| 本机管理页保存/预览/启用人工规则、下一集自动映射 | 已实现；篇章季号/目录由人明确选择 |
-| 单任务批量人工整理与不可变对比记录 | 已由独立前端owner完成并通过基线CI/UI验收 |
-| agent从人工对比归纳待审规则 | 前后端已集成：agent保守提议、人工可声明最多32集范围、试算区分已验证/未验证、人工终审才启用；跨仓fake已验，范围到E02真实浏览器/最终CI见 RULE_REVIEW_UI_EVIDENCE.md |
-| 用户选择目录/NFO → 可解释候选 → 人工规则草稿 | 已实现；只读有界扫描，预览/保存重查，不猜篇章季号，无模型学习 |
-| 明确有界总集数/相对编号、合集逐文件冻结/恢复、硬链接 | 已实现；不猜现实季度，不删源 |
-| Emby refresh与独立逐视频发现 | 已实现；全部视频确认后才discovered/ready |
-| 独立0–7天到期stop | 已实现；通知故障不参与执行状态 |
-| 专用GET /v1/events，服务认证与分页重放 | 已实现，默认关闭，仅新回环端口；管理CSRF独立 |
-| gateway持久inbox/outbox/cursor → Discord固定通知 | asuka-agent配套实现；fake跨仓验收，无模型/远程命令 |
-| 真实NAS/qB/Emby/Discord、跨机隧道/TLS部署 | 未验，本版不开放LAN事件监听 |
+| RSS/.torrent → qB5.x 下载去重、到期仅stop | 已实现；fake HTTP，不删源；通知/模型不参与做种截止 |
+| 人工命名规则、目录/NFO局部候选 | 已实现；明确订阅/别名/媒体身份/季号与有限范围，预览、保存草稿、单独启用 |
+| 完整任务 batch 与不可变对比 | 已实现；逐文件预览/版本摘要绑定、实际硬链接、逐视频Emby发现、部分执行恢复 |
+| agent归纳人工规则候选 | 已实现；持久样本/结果，人工有限范围试算和终审；范围内下一集自动映射 |
+| 单任务命名建议 UI/API | 已实现；人工facts、完整逐文件依据与不确定项、编辑后naming-preview/confirm、人批/拒绝 |
+| 默认关闭自动命名入队 | 已实现；learning.automatic_naming显式opt-in、规则优先、有界队列/预算、缺资料unresolved、不自动重提拒绝/未解项 |
+| 命名语义快照 | 已实现；做种等正交job版本变化不废弃建议；旧preview仍需当前CAS重预览，不重新付费 |
+| 拒绝/过期/模型离线后的独立人工batch | 已实现；不需要新模型请求，保留辅助历史，排除纯人工学习 |
+| 专用回环事件 / learning / naming服务 | 已实现且默认关闭；服务身份无批准权限；通知仅ID和固定码 |
+| 健康页 | 区分支持、配置和未知运行状态；配置开启不证明消费者/模型/Discord connected |
+| 标准 amd64 离线包 | 包装提交已整合；版本SHA/镜像ID/校验及公开模板白名单；CI构建配置门，真实NAS仍未验 |
+| LAN管理登录/鉴权、TVDB/在线元数据 | 未实现；只回环。已有授权SSH隧道仅访问候选，不是已验部署 |
+| 真实RSS/qB/Emby/模型/Discord/NAS/SSH、arm64 | 未部署验收；fake闭环与CI不能代替真实环境 |
 
-配置、启动与fake跨仓入口见 [NOTIFICATIONS.md](NOTIFICATIONS.md)。通知只包含任务标识和固定阶段说明，不公开标题/URL/源路径/凭据/原始异常。at-least-once；Discord nonce仅短窗口去重，不能保证端到端exactly-once。
+集成来源：UI e3d3ef610f626b2de8298e1b682044cd48857652；NAS后端17acfcfe0849f762bfe16f3cc2eb29e20bc920bf只接3f0b933后增量；包装41be7726bb2b8900bf1ca77761773ef335215a1d保留e4bdde7后的全部五提交；agent配套dd5b2bb06c17845406e7bce986146e1dd6030915，未改agent工作树。没有main merge/PR/部署或创建凭据。
 
-批量方案后端契约见 [BATCH_AGENT_CONTRACT.md](BATCH_AGENT_CONTRACT.md)，前端交接见 [BATCH_FRONTEND_HANDOFF.md](BATCH_FRONTEND_HANDOFF.md)，父审证据见 [BATCH_EVIDENCE.md](BATCH_EVIDENCE.md)。
+验证入口：make verify（Go1.26.9格式/vet/race/build及Python预检），make verify-ui（保留原浏览器门并加入命名生产API测试），make package-test，make package-nas。本机SQLite/libc官方依赖下载Forbidden，本轮生产Go/浏览器由已授权CI执行；未执行或失败不能计为通过。最终运行结果见交付回复及[NAMING_ASSISTANCE_UI_EVIDENCE.md](NAMING_ASSISTANCE_UI_EVIDENCE.md)。CI归档生产浏览器日志/截图及绑定最终SHA的离线包。
 
-已有候选里程碑与自审证据见 [MAPPING_EVIDENCE.md](MAPPING_EVIDENCE.md)；通知实现记录见 [NOTIFICATIONS_REVIEW.md](NOTIFICATIONS_REVIEW.md)。
-
-本轮交接见 [RULE_PROPOSALS_FRONTEND_HANDOFF.md](RULE_PROPOSALS_FRONTEND_HANDOFF.md)，配置和自审/未验边界见 [RULE_PROPOSALS_EVIDENCE.md](RULE_PROPOSALS_EVIDENCE.md)。前端集成与实际浏览器范围审核证据见 [RULE_REVIEW_UI_EVIDENCE.md](RULE_REVIEW_UI_EVIDENCE.md)；真实模型和生产服务仍未验。
+当前接口见[LOCAL_MANAGEMENT.md](LOCAL_MANAGEMENT.md)、[API.md](API.md)；命名边界见[NAMING_ASSISTANCE_HANDOFF.md](NAMING_ASSISTANCE_HANDOFF.md)；后端最终12场景跨仓证据见[NAMING_ASSISTANCE_EVIDENCE.md](NAMING_ASSISTANCE_EVIDENCE.md)。包装及回环SSH候选见[PACKAGING.md](PACKAGING.md)。规则候选合同见[RULE_PROPOSALS_FRONTEND_HANDOFF.md](RULE_PROPOSALS_FRONTEND_HANDOFF.md)，既有父审证据见[RULE_REVIEW_UI_EVIDENCE.md](RULE_REVIEW_UI_EVIDENCE.md)。
 
 ## 历史阶段记录（不作为当前功能矩阵）
 

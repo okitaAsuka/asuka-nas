@@ -1,6 +1,6 @@
 # 首版设计 / 2026-10-12
 
-当前架构：独立NAS拥有下载/文件/规则状态；本机管理UI/API已实现。新增默认关闭的专用回环事件服务，gateway通过独立服务认证只读重放，再用持久队列输出Discord固定通知；不调用Runtime/模型。当前边界见 STATUS.md、NOTIFICATIONS.md。
+当前架构：NAS独占下载/文件/规则事实；本机管理UI/API已实现。默认关闭事件服务提供固定通知；默认关闭learning/naming服务允许agent有界候选，必须人工终审。普通通知、下载与做种不调用模型。当前边界见STATUS.md、NAMING_ASSISTANCE_HANDOFF.md、NOTIFICATIONS.md。
 
 以下保留阶段演进记录；早期“仅单集/无HTTP/UI/Discord”等限制由末尾N3/N4、本机管理及本轮实现覆盖。
 
@@ -76,4 +76,4 @@ schema v4 引入全目标预约与逐文件持久执行，支持人工明确有�
 
 ## 映射学习后端检查点 / 2026-10-13
 
-NAS仍是唯一任务/文件/命名事实源；独立默认关闭学习回环服务只导出成功人工对比的最小投影并接受pending候选。agent复用既有provider且无工具访问。批准复用manual规则的事务helper，原子验证候选CAS、当前依据、epoch和有界试算，再创建并启用规则；服务Bearer没有批准接口。原对比和样本/候选正文不可变，规则更新不改已冻结文件。完整DTO见RULE_PROPOSALS_FRONTEND_HANDOFF.md；这是独立前端接入点，尚待两仓最终验收。
+NAS仍是唯一任务/文件/命名事实源；独立默认关闭学习回环服务只导出成功人工对比的最小投影并接受pending候选。agent复用既有provider且无工具访问。批准复用manual规则的事务helper，原子验证候选CAS、当前依据、epoch和有界试算，再创建并启用规则；服务Bearer没有批准接口。原对比和样本/候选正文不可变，规则更新不改已冻结文件。完整DTO见RULE_PROPOSALS_FRONTEND_HANDOFF.md；前端已整合，实际fake/浏览器/CI验证与真实环境未验边界见STATUS.md。

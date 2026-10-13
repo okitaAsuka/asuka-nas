@@ -4,7 +4,7 @@ CLI 默认只检查配置；`-run` 开始 RSS/job 轮询。Docker 默认 CMD 为
 `-run -config /config/config.json`，用户为 `65532:65532`，没有 EXPOSE 或管理端口映射。
 纯校验必须显式覆盖参数为 `-config /config/config.json`；它不会打开数据库或访问上游。
 中文前端仍仅允许回环 IP、本机单用户访问。容器内回环端口不能直接用于远程 NAS 管理；
-不要扩大监听、映射管理端口或用代理/隧道绕过该边界。LAN 管理需要后续独立认证设计。
+不要扩大监听、映射管理端口或用代理绕过该边界。LAN管理仍需要独立身份认证设计。用户已有授权SSH的同端口回环隧道是个人访问候选，见PACKAGING.md；真实NAS/SSH未验，导入镜像不开放LAN管理。
 
 ## 验证与 CI
 
@@ -117,5 +117,4 @@ protected_hardlinks、源所有者、ACL、容器安全策略均可阻止实际�
 SQLite、torrent blob 或凭据。数据库/备份含私密元数据；停止服务并正常关闭/WAL 检查点后备份，
 不能运行中只复制主 DB 忽略 WAL。恢复在隔离目录用同版本验证，禁止两个实例共用库。
 
-真实 NAS、qBittorrent、Emby、Discord 尚未实测。本轮未接通知；后续普通通知计划由 gateway
-直调 Discord，模型仅用于疑难命名。本轮不改变认证、业务架构或映射学习，不推送、不合并、不部署。
+真实NAS、qBittorrent、Emby、Discord、模型与SSH尚未部署实测。gateway固定事件通知、agent规则候选与单任务命名辅助已实现，默认关闭且仅回环；配置开启不证明真实连接。离线出包、CI和fake验证见PACKAGING.md及STATUS.md；没有main合并或真实部署。

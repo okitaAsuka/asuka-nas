@@ -76,14 +76,14 @@ const errors = {
   collection_preview_only: "多集单文件不支持；不能强制改成单集。",
   unsupported_episode_kind: "特殊篇或非整数编号暂不支持，请人工诊断。",
   subtitle_mapping_ambiguous: "字幕须同目录同视频stem，支持srt/ass/ssa/vtt及有限语言后缀。",
-  naming_stale: "命名依据已变化；草稿保留，请重新读取任务与建议，再明确申请当前快照。",
+  naming_stale: "命名依据已变化；草稿保留。可独立人工整理，或明确请求新的建议快照。",
   naming_invalid: "命名事实或文件建议不完整，请核对目录、显示名、季号与全部文件。",
   naming_not_found: "此命名请求不存在，请重新读取任务。",
   naming_retry_required: "已有命名请求；新请求必须明确重试，且旧项已拒绝、过期或未解。",
   naming_limit: "命名辅助达到限额：最多32文件、16来源标题，每任务最多3份请求。仍可核对人工整理。",
   naming_rules_available: "已有明确规则可解，请刷新任务或核对命名规则。",
   naming_unresolved: "缺少明确命名依据；请补充人工事实或填写完整整理表。",
-  naming_preview_required: "模型接触来源会永久保留；请使用此建议的当前完整预览再批准。",
+  naming_preview_required: "请使用当前通道重新完整预览后批准；建议审核与独立人工整理的摘要不能混用。",
   naming_replay_conflict: "已有不同结果，请重新读取建议，不会覆盖原始证据。",
   stale_plan: "未开始计划已过期：返回任务重新规划；重试不会改动旧计划。",
 };
@@ -1240,8 +1240,8 @@ class NamingAssistance {
     this.display = field(hints, "人工明确的显示名（可空）", "naming_display_name");
     this.season = field(hints, "人工明确的季号（可空，不设默认）", "naming_season", "", "number");
     this.season.min = 1; this.season.max = 99; this.season.step = 1;
-    this.hintGate = new ReviewedRequestGate(() => JSON.stringify([job.id, job.version, this.hints(), this.latest?.id, this.latest?.version]));
-    for (const event of ["input", "change", "reset"]) hints.addEventListener(event, () => this.hintGate.invalidate());
+    this.hintGate = new ReviewedRequestGate(() => JSON.stringify([this.job.id, this.job.version, this.hints(), this.latest?.id, this.latest?.version]));
+    for (const event of ["input", "change", "reset"]) hints.addEventListener(event, () => { this.hintGate.invalidate(); this.sync(); });
     this.status = el("p", undefined, "batch-status muted");
     this.status.dataset.namingStatus = "true";
     this.status.setAttribute("role", "status");
@@ -1274,8 +1274,9 @@ class NamingAssistance {
   }
   sync() {
     const v = this.latest, editable = this.job.import === "needs_confirmation" && !this.job.plan?.approved && !this.job.plan?.started;
+    const supplemented = v && JSON.stringify(this.hints()) !== JSON.stringify(v.snapshot.hints);
     this.request.textContent = v ? "明确重新请求当前快照" : "请求命名建议";
-    this.request.dataset.unavailable = String(!editable || !!v && !["unresolved", "rejected", "stale"].includes(v.state));
+    this.request.dataset.unavailable = String(!editable || !!v && !supplemented && !["unresolved", "rejected", "stale"].includes(v.state));
     this.reject.dataset.unavailable = String(!v || ["approved", "rejected"].includes(v.state) || !this.rejectCheck.checked);
     this.rejectLabel.hidden = this.reject.hidden = !v || ["approved", "rejected"].includes(v.state);
     setBusy(busy);
@@ -1288,10 +1289,10 @@ class NamingAssistance {
     if (v) {
       const facts = hints || v.snapshot.hints;
       this.directory.value = facts.directory || ""; this.display.value = facts.display_name || ""; this.season.value = facts.season || "";
-      this.evidence.append(el("p", `请求版本 ${v.version} · ${v.snapshot.files.length} 个完整源文件 · 来源：模型辅助 + 人工审核`, "muted"));
+      this.evidence.append(el("p", `请求版本 ${v.version} · ${v.snapshot.files.length} 个完整源文件 · ${v.snapshot.trigger === "automatic" ? "自动入队（已配置启用）" : v.snapshot.trigger === "human" ? "人工请求" : "旧请求（入口未记录）"} · ${v.result ? "模型辅助 + 人工审核" : "尚无模型结果"}`, "muted"));
       if (v.result) this.evidence.append(this.resultTable(v));
       if (v.state === "unresolved") this.evidence.append(el("p", "可补充上方明确事实，再主动申请一次新建议；也可直接在下方人工填写，完整预览后批准。每任务最多3份请求，不自动重试。", "notice"));
-      if (["rejected", "stale"].includes(v.state) && v.result) this.evidence.append(el("p", "原结果与模型接触来源保留。此后端版本不能在拒绝 / 过期后直接批准批量草稿；请明确申请当前快照。仍可填写、保留人工草稿。", "notice"));
+      if (["rejected", "stale"].includes(v.state) && v.result) this.evidence.append(el("p", "原结果与辅助来源保留。可在下方独立人工整理，完整预览后直接确认；无需再次请求模型。", "notice"));
       if (v.state === "approved" && v.preview?.plan?.batch) this.evidence.append(button("复用已确认事实为规则草稿", () => {
         if (busy || !this.current()) return;
         ruleClues = { contexts: this.detail.contexts || [], source: v.preview.plan.batch.rows[0]?.source || "", organization: v.preview.plan.batch };
@@ -1309,17 +1310,20 @@ class NamingAssistance {
     this.rejectCheck.checked = false;
     this.editorSlot.replaceChildren();
     if (this.job.import !== "imported" && !this.job.plan?.started && !this.job.plan?.approved) {
-      const active = v?.result && ["suggested", "unresolved"].includes(v.state) ? v
-        : v?.state === "requested" ? [...this.items].reverse().find(item => item.result && ["suggested", "unresolved"].includes(item.state)) || null
+      const active = !this.manual && v?.result && ["suggested", "unresolved"].includes(v.state) ? v
+        : !this.manual && v?.state === "requested" ? [...this.items].reverse().find(item => item.result && ["suggested", "unresolved"].includes(item.state)) || null
         : null;
       if (active && active !== v) this.evidence.append(el("p", "新请求仍待结果；下方人工表绑定此前未解 / 建议的模型来源，须完整预览与终审。", "notice"), this.resultTable(active));
       this.workbench = new BatchWorkbench(this.job, this.detail, active);
       this.workbench.onConflict = () => this.recoverContext();
       this.editorSlot.append(this.workbench.node);
-      if (this.items.some(item => item.result) && !active) {
-        unavailable(this.workbench.preview, "请明确申请当前命名快照");
-        unavailable(this.workbench.confirm, "拒绝 / 过期结果不能直接批准");
-      }
+      if (v && !active) this.workbench.node.append(el("p", "独立人工整理：直接预览并确认当前完整表，不需要模型结果或重试。辅助请求历史永久保留，不进入纯人工学习；原建议状态不改写。", "notice"));
+      if (active) this.evidence.append(button("改用独立人工整理", () => {
+        if (busy || !this.current()) return;
+        this.manual = true;
+        this.workbench.gate.invalidate();
+        this.render(this.workbench.editor.raw(), this.hints());
+      }));
       if (draft) {
         const editor = this.workbench.editor;
         editor.directory.value = draft.directory; editor.display.value = draft.display;
@@ -1366,17 +1370,14 @@ class NamingAssistance {
         api("naming?job_id=" + encodeURIComponent(this.job.id)),
       ]);
       if (g !== generation || !this.current()) return;
+      const draft = this.workbench?.editor.raw(), hints = this.hints();
+      this.workbench?.gate.invalidate();
       this.job = detail.job; this.detail = detail;
-      this.items = data.items || [];
-      this.hintGate.invalidate();
-      if (this.workbench) {
-        unavailable(this.workbench.preview, "请核对最新建议后重新载入");
-        unavailable(this.workbench.confirm, "必须重新预览当前命名快照");
-      }
-      this.state.replaceChildren(badge(namingStates[data.items?.at(-1)?.state] || "状态待核对", "warn"));
-      // 冲突后重读事实但保留草稿与旧请求引用；绝不静默重新绑定或批准。
-      this.feedback("任务与建议状态已重新读取；草稿保留。请核对当前状态并明确重试，或刷新任务载入最新建议。" );
-      this.sync();
+      this.items = data.items || []; this.hintGate.invalidate();
+      this.render(draft, hints);
+      this.feedback(this.latest?.state === "stale"
+        ? "命名依据已过期；草稿保留，可直接独立人工整理，或明确请求新的建议。"
+        : "任务状态已更新；草稿与建议保留。请重新完整预览，无需再次请求模型。");
     } catch (e) {
       if (g === generation && this.current()) this.feedback("状态重读未完成；草稿保留，请手动重新读取。", true);
     }
@@ -2166,18 +2167,24 @@ async function healthView() {
     badge("数据库 " + health.database, "ok"),
     el(
       "p",
-      "当前模式：仅本机单用户。禁止将此端口直接暴露到 NAS 局域网或反向代理；网络访问需要独立认证、TLS 和授权门。",
+      "当前模式：仅本机单用户、回环监听。导入NAS镜像不会开放LAN访问；用户已有授权SSH回环隧道可作为访问候选，真实部署仍需核验。",
       "notice",
     ),
   );
-  const t = table(["能力", "状态"]);
+  const t = table(["能力", "配置", "运行 / 验收状态"]);
+  const configured = (key) => health.capabilities?.[key]?.configured_enabled === true ? "已配置启用"
+    : health.capabilities?.[key]?.configured_enabled === false ? "配置关闭" : "配置未知";
   [
-    ["RSS → qB → 安全入库 → Emby", "已实现；本轮仅 fake 服务验收"],
-    ["SQLite 可重放事件", "已实现，只读游标 API"],
-    ["NAS 认证只读事件 / agent 固定通知", "配套实现；尚未真实连接或外发"],
-    ["目录 / NFO 局部证据候选", "已实现；人工选择后保存明确规则，无模型学习"],
-    ["元数据服务 / 模型建议", "未接入"],
-    ["真实 NAS / Docker / 上游兼容", "待部署验收"],
+    ["RSS → qB → 安全入库 → Emby", "已实现", "fake服务验证；真实上游兼容待验"],
+    ["SQLite 可重放事件", "已实现", "数据库可读不证明挂载或外部服务健康"],
+    ["认证只读事件 / agent 固定通知", configured("events"), "支持已实现；消费者 / Discord当前状态未知"],
+    ["映射学习 / agent规则候选", configured("learning"), "支持已实现；agent / 模型当前状态未知"],
+    ["单任务命名辅助 / 人工终审", "已实现；人工入口始终可用", "agent运行状态未知；以任务建议列表核对结果"],
+    ["命名自动入队", configured("automatic_naming"), "默认关闭；启用不等于agent在线或模型已调用"],
+    ["目录 / NFO 局部证据候选", "已实现", "用户明确选目录；候选不授予执行权限"],
+    ["TVDB / 在线元数据搜索", "未实现", "无外部元数据接入"],
+    ["LAN管理身份认证", "未实现；仅回环", "已有授权SSH隧道是访问候选，未验真实部署"],
+    ["Docker / 真实 NAS", "支持离线镜像包", "CI可验构建与配置；真实NAS部署待验"],
   ].forEach((v) => row(t.body, v));
   p.append(
     t.wrap,

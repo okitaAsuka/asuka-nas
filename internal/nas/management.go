@@ -234,7 +234,16 @@ func (m *Management) api(w http.ResponseWriter, r *http.Request) {
 				apiError(w, 503, "database_unavailable")
 				return
 			}
-			apiJSON(w, map[string]any{"mode": "local_single_user", "database": "ok", "gateway": "not_connected", "discord": "not_connected", "metadata": "not_connected", "learning": "local_evidence_candidates", "model": "not_connected"})
+			// 配置启用不证明listener、消费者或模型在线；健康面不发送探测或泄漏配置身份。
+			capability := func(enabled bool) map[string]any {
+				return map[string]any{"supported": true, "configured_enabled": enabled, "runtime": "unknown"}
+			}
+			apiJSON(w, map[string]any{"mode": "local_single_user", "database": "ok", "gateway": "unknown", "discord": "unknown", "metadata": "not_supported", "model": "unknown", "learning": "human_reviewed_rule_proposals", "capabilities": map[string]any{
+				"events":           capability(m.Daemon.Config.Events.Enabled),
+				"learning":         capability(m.Daemon.Config.Learning.Enabled),
+				"automatic_naming": capability(m.Daemon.Config.Learning.AutomaticNaming),
+				"naming":           map[string]any{"supported": true, "runtime": "unknown"},
+			}})
 			return
 		case "subscriptions":
 			v, next, total, err := s.SubscriptionPage(ctx, r.URL.Query().Get("after"))

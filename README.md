@@ -1,29 +1,29 @@
 # asuka-nas
 
-asuka-nas 项目仓库。
+Go 1.26.9 + SQLite 的独立 NAS 番剧入库服务：RSS/.torrent → qBittorrent 下载 → 明确命名 → 同文件系统硬链接 → Emby 刷新及逐视频发现。保留下载源文件做种，到期仅停止、不删除。
 
-当前已实现下载/人工映射/合集恢复及本机管理；新增默认关闭的专用事件服务，配套gateway确定性Discord输出。配置与fake跨仓验收见[docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md)，当前矩阵见[docs/STATUS.md](docs/STATUS.md)。
+中文本机管理页支持订阅、人工命名规则、完整任务批量整理、不可变对比记录，以及 agent 命名建议与规则候选的人工审核。普通下载、人工整理和做种不依赖模型。命名建议先预览完整文件表，再由人批准；拒绝、过期或模型离线时仍可直接人工 batch 整理，辅助来源永久保留。可显式复用已确认事实为规则草稿，核对别名和有限范围后独立预览、保存与启用。
 
-Go 1.26.9 + SQLite 的独立 NAS 番剧入库服务。qBittorrent 下载、同文件系统硬链接、Emby 刷新与发现确认，正常流程不依赖模型。
+专用事件通知与 learning/naming 服务已实现，默认关闭，仅回环监听。`learning.automatic_naming` 默认 false；显式开启后只对支持的待确认任务入队，agent 的默认关闭 `nas_naming` 仍需独立配置及有界持久预算。没有 TVDB/在线元数据搜索或远程文件批准接口。
 
-已实现 RSS/.torrent HTTP 适配和常驻轮询，**只用本地 fixtures 验证，尚未进行真实服务或 NAS 部署验收**。显式 `-serve` 可运行中文本地管理界面；没有 LAN 鉴权或 Discord 接入。
+**真实 NAS/qB/Emby/模型/Discord、SSH 与 arm64 未做部署验收。** 导入镜像不会开放 LAN 管理；管理面无 LAN 登录/鉴权，只支持本机回环。用户已有授权 SSH 的回环隧道是可选访问候选，详见部署说明，不替用户配置 SSH 或创建凭据。
 
-- [设计与运行边界](docs/DESIGN.md)
-- [本地管理 UI/API](docs/LOCAL_MANAGEMENT.md)
-- [部署准备、只读 NAS 预检与镜像构建](docs/RUNNING.md)
-- [agent v1 未来契约](docs/API.md)
-- [当前交付和限制](docs/STATUS.md)
-- [复核材料与测试名](docs/REVIEW.md)
+- [当前能力、版本和验证限制](docs/STATUS.md)
+- [本机管理 UI/API](docs/LOCAL_MANAGEMENT.md)
+- [命名辅助与语义快照合同](docs/NAMING_ASSISTANCE_HANDOFF.md)
+- [规则候选审核合同](docs/RULE_PROPOSALS_FRONTEND_HANDOFF.md)
+- [事件与通知](docs/NOTIFICATIONS.md)
+- [构建离线 Docker 包与 NAS 导入候选](docs/PACKAGING.md)
+- [只读 NAS 预检与运行边界](docs/RUNNING.md)
+- [已实现接口与未来接口的区分](docs/API.md)
 
 ```sh
 make verify
-go run ./cmd/asuka-nas -config config.example.json
+make verify-ui
+make package-test
+make package-nas ARCH=amd64 PACKAGE_OUT="$PWD/dist"
 ```
 
-默认仅检查配置，不联网。显式 `-run` 启动轮询；`-serve` 同时启用本机管理界面；本轮未对真实服务运行此模式。
-订阅配置写在 `subscriptions` 数组，每项包含 `id`、`url`，以及可选 `enclosure_origins`（完整 scheme://host[:port]）；示例为空数组。带 token 的 RSS URL 只放用户本地配置，不提交或写日志。
-部署者已有凭据通过 `ASUKA_NAS_QB_USERNAME`、`ASUKA_NAS_QB_PASSWORD`、`ASUKA_NAS_EMBY_TOKEN` 提供；本项目不生成凭据。qB 5.x、下载器和本服务须相同下载挂载路径，Emby 和本服务须相同媒体挂载路径。
+Go 检查需要真实 Go 1.26.9；UI 测试需要 Python3.12、`tests/requirements.txt` 与 Chromium。标准出包在 Docker 内编译；用户电脑无需另装 Go/npm，NAS 无需源码。Windows 使用 WSL2 + Docker Desktop 的 Linux containers，完整前提见 PACKAGING.md。CI 保留完整 Go/UI 门及独立包装门，包内 VERSION.json 绑定源码 SHA；配置模板默认无来源和凭据，事件/learning/自动命名均关闭。出包和配置校验不等于真实部署成功。
 
-如 `go` 不是实际工具链，设置 `GO_BINARY=/absolute/path/to/go1.26.9/bin/go` 后运行 `scripts/dev.sh`。`make verify` 也需要 Python3。Dockerfile 默认显式运行 daemon，不开管理端口；linux/amd64 离线镜像已本地构建及配置校验，真实 NAS 尚未部署验收，见 docs/RUNNING.md。
-
-人工规则支持安全单集和显式有界映射的合集；缺集/重复/未知季集/字幕映射不明整体待确认，不按清单顺序猜集数。用法见 docs/NAMING.md、docs/COLLECTIONS.md。qB 会话失效后仅对 401/403 有界重新登录（每次最多一次、60 秒冷却）；凭据从上述部署环境变量引用读取，不在客户端保存。完成/待确认任务和未到期订阅无持续写入或上游请求。
+CLI 默认仅校验配置、不联网；`-run` 启动 daemon；`-serve` 同时启动管理页和 daemon，会访问用户明确配置的服务。配置来源 URL、已有 qB/Emby 凭据只在本地私密配置/环境，不提交或进入日志。qB 与本程序必须报告同一下载路径，Emby Path 必须与媒体库路径一致；下载/库需要同设备且不重叠。
