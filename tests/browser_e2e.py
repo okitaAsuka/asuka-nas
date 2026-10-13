@@ -83,7 +83,7 @@ with sync_playwright() as p:
     page.get_by_role('button',name='查看详情').click()
     expect(page.get_by_text('阻塞 / 错误：permission_denied',exact=True)).to_be_visible()
     expect(page.get_by_role('button',name='重新规划')).to_be_disabled()
-    page.get_by_role('button',name='安全重试').click()
+    page.get_by_role('button',name='恢复原冻结方案').click()
     expect(page.locator('#message')).to_contain_text('操作已保存')
     fixture('pack-recover');page.get_by_role('button',name='刷新状态').click()
     expect(page.get_by_text('已硬链接',exact=True)).to_be_visible()

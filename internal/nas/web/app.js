@@ -60,6 +60,11 @@ const errors = {
   library_cancelled: "目录读取已取消或超时。",
   library_changed: "读取时目录发生变化，请重新读取候选。",
   candidate_stale: "候选或目标目录已变化，请重新读取、选择和预览。",
+  invalid_job_state: "任务阶段已变化，请刷新任务查看当前方案。",
+  episode_unresolved: "源文件编号未明确或存在双编号；请使用手动集号或明确的映射规则。",
+  invalid_file_manifest: "完整源清单未通过验证，请核对全部下载文件。",
+  unsupported_video: "此视频格式暂不支持整体整理。",
+  unsupported_file_set: "文件集合不支持整体整理，请核对完整清单。",
   invalid_batch: "请填写安全的相对目录、显示名、季号，并核对编号方式。",
   order_confirmation_required: "请核对整表的顺序和连续编号，再明确勾选排序确认。",
   duplicate_episode: "集号重复；请逐行核对，完整任务不能重复目标。",
@@ -424,6 +429,7 @@ async function jobView(id) {
     ),
   );
   root.append(p);
+  if (j.download === "completed" && j.import !== "imported" && !j.plan?.started && !permanent) root.append(batchPanel(j,v));
   if (v.contexts?.length) {
     const evidence = panel("来源证据（最多 100 条）");
     v.contexts.forEach((c) => {
@@ -477,7 +483,6 @@ async function jobView(id) {
     );
   root.append(plan);
   root.append(comparisonPanel(id));
-  if (j.download === "completed" && j.import !== "imported" && !j.plan?.started && !permanent) root.append(batchPanel(j,v));
   if (
     j.download === "completed" &&
     j.import !== "imported" &&
@@ -488,7 +493,7 @@ async function jobView(id) {
     form.append(
       el(
         "p",
-        "仅完整单视频清单；字幕随主视频绑定。合集请使用有界规则，不支持挑选一集绕过整包检查。",
+        "仅完整单视频清单；字幕随主视频绑定。合集使用批量整理明确全部视频，不支持挑选一集绕过整包检查。",
         "muted",
       ),
     );
@@ -517,96 +522,360 @@ async function jobView(id) {
   }
   return root;
 }
-function batchPanel(j,v) {
-  const form=panel("批量整理并入库"), grid=el("div",undefined,"grid");
-  form.dataset.batch="true";
-  form.append(el("p","范围为此下载任务的完整清单：mkv/mp4视频；同目录同stem的srt/ass/ssa/vtt字幕自动随视频。辅助文件只绑定指纹；特殊篇、多集单文件、混季和不明确字幕关联不支持。下载源保持原名，媒体库使用硬链接。清单初始顺序仅用于展示。","muted"));
-  const directory=field(grid,"目标媒体相对目录","batch_directory"), display=field(grid,"显示名称","batch_display_name"), season=field(grid,"明确季号","batch_season","","number"),
-    mode=select(grid,"编号方式","batch_mode",[["manual","逐行明确填写"],["extracted","已有明确编号 + 有界偏移"],["sequential","按本表顺序连续编号（需排序确认）"]]),
-    offset=field(grid,"编号偏移（仅提取方式）","batch_offset",0,"number"), start=field(grid,"连续编号首集","batch_start",1,"number");
-  form.append(grid);
-  const orderLabel=el("label","已逐行核对本表顺序与连续编号；该顺序代表本次集序"), order=el("input");order.type="checkbox";order.name="batch_order_confirmed";orderLabel.prepend(order);form.append(orderLabel);
-  const t=table(["原名 / 问题提示","明确集号","拟定视频目标","调整行序"]), output=el("div");output.dataset.batchPreview="true";
-  let rows=(j.sources||[]).filter(s=>/\.(mkv|mp4)$/i.test(s)).map(source=>({source,episode:""})), revision=0, accepted=null, candidateRevision=0;
-  const hint=source=>(v.batch_hints||[]).find(h=>h.source===source)||{};
-  const request=()=>({id:j.id,version:j.version,organization:{directory:directory.value,display_name:display.value,season:Number(season.value),mode:mode.value,offset:mode.value==="extracted"?Number(offset.value):0,start:mode.value==="sequential"?Number(start.value):0,order_confirmed:mode.value==="sequential"&&order.checked,rows:rows.map(r=>({source:r.source,episode:Number(r.episode)}))}});
-  function invalidate() {revision++;accepted=null;output.replaceChildren();unavailable(confirm,"先预览当前整表");message.textContent="";}
-  function target(r) {return `${directory.value}/Season ${String(Number(season.value)).padStart(2,"0")}/${display.value} - S${String(Number(season.value)).padStart(2,"0")}E${String(Number(r.episode)).padStart(2,"0")}${r.source.slice(r.source.lastIndexOf("."))}`;}
-  function render() {
-    t.body.replaceChildren();
-    rows.forEach((r,i)=>{
-      const h=hint(r.source), info=el("div"), ep=el("input"), targetCell=el("span",target(r)), actions=el("div",undefined,"actions");
-      info.append(el("p",r.source,"mono"),el("p",h.problem?(errors[h.problem]||h.problem):`源明确季：${h.season||"未知"}；相对集：${h.relative||"未知"}；总集：${h.absolute||"未知"}`,"muted"));
-      ep.type="number";ep.name="batch_episode";ep.value=r.episode;ep.setAttribute("aria-label",r.source+" 集号");
-      ep.addEventListener("input",()=>{r.episode=ep.value;order.checked=false;invalidate();targetCell.textContent=target(r)});
-      for(const [label,delta] of [["上移",-1],["下移",1]]) {const b=button(label,()=>{const n=i+delta;if(n<0||n>=rows.length)return;[rows[i],rows[n]]=[rows[n],rows[i]];order.checked=false;invalidate();render()});b.disabled=i+delta<0||i+delta>=rows.length;actions.append(b);}
-      row(t.body,[info,ep,targetCell,actions]);
+// 同一静态入口内按职责拆分；管理服务的embed/CSP路径保持不变。
+const isBatchVideo = (source) => /\.(mkv|mp4)$/i.test(source);
+const padEpisode = (number) => String(number).padStart(2, "0");
+function batchTarget(source, organization, episode) {
+  if (!organization.directory || !organization.display_name || !organization.season || !episode)
+    return "填写目录、显示名和明确季集后显示拟定路径";
+  return `${organization.directory}/Season ${padEpisode(organization.season)}/${organization.display_name} - S${padEpisode(organization.season)}E${padEpisode(episode)}${source.slice(source.lastIndexOf("."))}`;
+}
+function recognitionText(hint) {
+  if (hint.problem) return errors[hint.problem] || hint.problem;
+  return `季 ${hint.season || "未声明"} · 相对集 ${hint.relative || "未声明"} · 总集 ${hint.absolute || "未声明"}`;
+}
+function comparisonTable(headers) {
+  const result = table(headers);
+  result.wrap.classList.add("file-table");
+  result.body.parentElement.querySelectorAll("th").forEach((h) => h.scope = "col");
+  return result;
+}
+function fileRow(body, values, labels) {
+  row(body, values);
+  [...body.lastElementChild.children].forEach((cell, i) => cell.dataset.label = labels[i]);
+}
+function filePair(source, target) {
+  const pair = el("div", undefined, "file-pair");
+  pair.append(el("span", source, "mono"), el("span", "→ " + target, "mono target-name"));
+  return pair;
+}
+function batchSteps(current) {
+  const steps = el("ol", undefined, "batch-steps");
+  steps.setAttribute("aria-label", "整理流程");
+  ["选择任务", "批量编辑", "完整预览", "确认方案", "执行 / 对比"].forEach((label, i) => {
+    const step = el("li", `${i + 1} · ${label}`);
+    if (i === current) step.setAttribute("aria-current", "step");
+    steps.append(step);
+  });
+  return steps;
+}
+
+// 请求代数与原始DOM快照双重绑定：静默赋值也不能复用旧预览。
+class ReviewedRequestGate {
+  constructor(snapshot) { this.snapshot = snapshot; this.revision = 0; this.accepted = null; }
+  invalidate() { this.revision++; this.accepted = null; }
+  begin() {
+    const version = this.revision, g = generation, snapshot = this.snapshot();
+    return { snapshot, owns: () => version === this.revision && g === generation && snapshot === this.snapshot() };
+  }
+  accept(ticket, request, result) {
+    if (!ticket.owns()) return false;
+    this.accepted = { snapshot: ticket.snapshot, request, ...result };
+    return true;
+  }
+  reviewed() { return this.accepted?.snapshot === this.snapshot() ? this.accepted : null; }
+}
+
+class BatchEditor {
+  constructor(job, detail, changed) {
+    this.job = job;
+    this.hints = new Map((detail.batch_hints || []).map(h => [h.source, h]));
+    // 保留下载器顺序，绝不在前端按字典序隐式分配集数。
+    this.rows = (job.sources || []).filter(isBatchVideo).map(source => ({ source, episode: "" }));
+    this.changed = changed;
+    this.node = el("div", undefined, "batch-editor");
+    const grid = el("div", undefined, "grid batch-fields");
+    this.directory = field(grid, "媒体库相对目录", "batch_directory");
+    this.directory.placeholder = "例如：Example";
+    this.display = field(grid, "媒体库显示名称", "batch_display_name");
+    this.season = field(grid, "本次目标季号 · 1–99", "batch_season", "", "number");
+    this.mode = select(grid, "编号方式", "batch_mode", [["manual", "手动 · 逐行填写"], ["extracted", "提取编号 + 偏移"], ["sequential", "按本表顺序连续编号"]]);
+    this.offset = field(grid, "提取编号偏移 · -998 至 998", "batch_offset", 0, "number");
+    this.start = field(grid, "连续编号首集 · 1–999", "batch_start", 1, "number");
+    [[this.season,1,99], [this.offset,-998,998], [this.start,1,999]].forEach(([n,min,max]) => { n.min = min; n.max = max; n.step = 1; });
+    this.modeHelp = el("p", undefined, "muted");
+    this.modeHelp.id = "batch-mode-help";
+    this.mode.setAttribute("aria-describedby", this.modeHelp.id);
+    this.numbering = button("提取 / 展示连续编号", () => this.assignNumbers());
+    this.order = el("input");
+    this.order.type = "checkbox";
+    this.order.name = "batch_order_confirmed";
+    this.orderLabel = el("label", undefined, "order-approval");
+    this.orderLabel.append(this.order, el("span", "我已逐行核对本表顺序与连续编号；该顺序代表本次集序。调整顺序或编号后需再次确认。"));
+    this.order.addEventListener("change", () => {
+      this.orderSnapshot = this.order.checked ? this.orderSignature() : null;
+      this.changed();
+    });
+    this.table = comparisonTable(["原名 / 识别信息", "目标集号", "拟定视频路径", "调整行序"]);
+    this.node.append(grid, this.modeHelp, this.numbering, this.table.wrap, this.orderLabel);
+    [this.directory,this.display,this.season,this.mode,this.offset,this.start].forEach(n => {
+      for (const event of ["input", "change"]) n.addEventListener(event, () => {
+        this.clearOrder(); this.changed(); this.update();
+      });
+    });
+    this.renderRows();
+    this.update();
+  }
+  clearOrder() { this.order.checked = false; this.orderSnapshot = null; }
+  rowValues() { return this.rows.map(r => ({ source: r.source, episode: r.input?.value ?? r.episode })); }
+  raw() {
+    return { directory:this.directory.value, display:this.display.value, season:this.season.value,
+      mode:this.mode.value, offset:this.offset.value, start:this.start.value,
+      rows:this.rowValues() };
+  }
+  orderSignature() { return JSON.stringify(this.raw()); }
+  snapshot() { return JSON.stringify({ ...this.raw(), checked:this.order.checked, orderSnapshot:this.orderSnapshot }); }
+  request() {
+    return { id:this.job.id, version:this.job.version, organization:{
+      directory:this.directory.value, display_name:this.display.value, season:Number(this.season.value),
+      mode:this.mode.value, offset:this.mode.value === "extracted" ? Number(this.offset.value) : 0,
+      start:this.mode.value === "sequential" ? Number(this.start.value) : 0,
+      order_confirmed:this.mode.value === "sequential" && this.order.checked && this.orderSnapshot === this.orderSignature(),
+      rows:this.rowValues().map(r => ({source:r.source,episode:Number(r.episode)})) } };
+  }
+  assignNumbers() {
+    if (this.mode.value === "manual") return;
+    this.rows.forEach((r,i) => {
+      const h = this.hints.get(r.source) || {};
+      r.input.value = this.mode.value === "sequential" ? Number(this.start.value) + i
+        : !h.problem && !(h.relative && h.absolute) && (h.relative || h.absolute)
+          ? Number(h.relative || h.absolute) + Number(this.offset.value) : "";
+    });
+    this.clearOrder(); this.changed(); this.update();
+  }
+  move(index, delta) {
+    const next = index + delta;
+    if (next < 0 || next >= this.rows.length) return;
+    this.rows.forEach(r => r.episode = r.input.value);
+    const moved = this.rows[index];
+    [this.rows[index],this.rows[next]] = [this.rows[next],this.rows[index]];
+    this.clearOrder(); this.changed(); this.renderRows(); this.update();
+    moved.actions.querySelector(delta > 0 ? "button:first-child" : "button:last-child").focus();
+  }
+  renderRows() {
+    this.table.body.replaceChildren();
+    this.rows.forEach((r,i) => {
+      const info = el("div");
+      info.append(el("p", `${i + 1}. ${r.source}`, "mono source-name"), el("p", recognitionText(this.hints.get(r.source) || {}), "muted"));
+      r.input = el("input"); r.input.type = "number"; r.input.name = "batch_episode";
+      r.input.min = 1; r.input.max = 999; r.input.step = 1; r.input.value = r.episode;
+      r.input.setAttribute("aria-label", r.source + " 目标集号");
+      r.target = el("span", undefined, "mono target-name");
+      r.actions = el("div", undefined, "actions row-actions");
+      for (const [label,delta] of [["上移",-1],["下移",1]]) {
+        const b = button(label, () => this.move(i,delta));
+        b.setAttribute("aria-label", `${label} ${r.source}`);
+        b.disabled = i+delta < 0 || i+delta >= this.rows.length;
+        r.actions.append(b);
+      }
+      for (const event of ["input","change"]) r.input.addEventListener(event, () => {
+        this.clearOrder(); this.changed(); this.update();
+      });
+      fileRow(this.table.body, [info,r.input,r.target,r.actions], ["原名 / 识别信息","目标集号","拟定视频路径","调整行序"]);
     });
   }
-  const confirm=writeButton("确认整表并入库",async()=>{
-    if(busy)return;
-    if(!accepted||accepted.snapshot!==JSON.stringify(request())) {invalidate();fail(new Error("请先预览当前整表，再确认。"));return;}
-    const reviewed=accepted;
-    await mutate(()=>api("batch-confirm",{...reviewed.request,plan_version:reviewed.plan.version,digest:reviewed.digest}));
-  },true);
-  unavailable(confirm,"先预览当前整表");
-  for(const f of [directory,display,season,mode,offset,start]) for(const event of ["input","change"]) f.addEventListener(event,()=>{order.checked=false;invalidate();render()});
-  order.addEventListener("change",invalidate);
-  form.addEventListener("reset",()=>{order.checked=false;invalidate()});
-  form.append(button("提取 / 展示连续编号",()=>{
-    order.checked=false;invalidate();
-    if(mode.value==="manual")return;
-    rows.forEach((r,i)=>{const h=hint(r.source);r.episode=mode.value==="sequential"?Number(start.value)+i:(!h.problem && !(h.relative&&h.absolute) && (h.relative||h.absolute)?Number(h.relative||h.absolute)+Number(offset.value):"")});render();
-  }),t.wrap);
-  form.append(writeButton("预览完整整理表",async()=>{
-    if(busy)return;
-    invalidate();const g=generation,r=revision,req=request(),snapshot=JSON.stringify(req);
-    const owns=()=>g===generation&&r===revision&&snapshot===JSON.stringify(request());
-    setBusy(true);
+  update() {
+    const mode = this.mode.value;
+    this.offset.closest("label").hidden = mode !== "extracted";
+    this.start.closest("label").hidden = mode !== "sequential";
+    this.orderLabel.hidden = mode !== "sequential";
+    this.numbering.hidden = mode === "manual";
+    this.modeHelp.textContent = mode === "manual" ? "逐行填写本次集号；识别信息只作参考。"
+      : mode === "extracted" ? "只使用源文件的明确编号。双编号或未知编号不能自动选择；修改偏移后请重新提取。"
+      : "先用上移 / 下移确定集序，再展示连续编号，最后逐行核对并勾选排序确认。初始顺序不代表集序。";
+    const organization = this.request().organization;
+    this.rows.forEach(r => {
+      r.input.readOnly = mode !== "manual";
+      r.target.textContent = batchTarget(r.source, organization, Number(r.input.value));
+      r.input.removeAttribute("aria-invalid");
+    });
+  }
+  markError(code) {
+    let focus;
+    if (code === "order_confirmation_required") { this.clearOrder(); focus = this.order; }
+    if (code === "episode_out_of_bounds") focus = [this.season,this.offset,this.start,...this.rows.map(r=>r.input)].find(n => !n.closest("label")?.hidden && (!n.value || !n.validity.valid));
+    if (code === "duplicate_episode") {
+      const seen = new Set();
+      this.rows.forEach(r => { const value = Number(r.input.value);
+        if (seen.has(value)) { r.input.setAttribute("aria-invalid","true"); focus ||= r.input; } seen.add(value);
+      });
+    }
+    if (code === "invalid_batch") focus = [this.directory,this.display,this.season].find(n => !n.value || !n.validity.valid);
+    if (focus) { focus.setAttribute("aria-invalid","true"); focus.focus(); }
+  }
+}
+
+function renderBatchPreview(result) {
+  const root = el("div"), plan = result.plan;
+  root.append(el("h3", "完整预览 · 请逐文件核对"), el("p", `方案 v${plan.version} · 共 ${plan.manifest.length} 个源文件指纹 / ${plan.files.length} 个入库文件。预览不落盘；确认仅保存人工意图，执行及全部 Emby 发现仍待完成。`, "notice"));
+  const t = comparisonTable(["下载原文件 → 媒体库硬链接", "类型 / 预览状态"]);
+  plan.files.forEach(f => fileRow(t.body, [filePair(f.source,f.target), el("span", `${isBatchVideo(f.source) ? "视频" : "关联字幕"} · 待确认`, "badge")], ["原名 → 目标","类型 / 预览状态"]));
+  root.append(t.wrap);
+  const auxiliary = plan.manifest.filter(f => !plan.files.some(p => p.source === f.source));
+  if (auxiliary.length) {
+    const details = el("details"), list = el("ul");
+    details.append(el("summary", `${auxiliary.length} 个辅助文件 · 绑定指纹，不入库`));
+    auxiliary.forEach(f => list.append(el("li", f.source, "mono"))); details.append(list); root.append(details);
+  }
+  const details = el("details"), list = el("ul");
+  details.append(el("summary", "查看完整源清单与指纹"));
+  plan.manifest.forEach(f => list.append(el("li", `${f.source} · ${f.fingerprint}`, "mono")));
+  details.append(list); root.append(details);
+  return root;
+}
+
+class BatchWorkbench {
+  constructor(job, detail) {
+    this.node = panel("批量整理并入库"); this.node.dataset.batch = "true"; this.node.classList.add("batch-workbench");
+    this.steps = batchSteps(1);
+    this.node.append(this.steps, el("p", "只整理本次下载任务。媒体库创建正确命名的硬链接，下载原文件保留做种；缺少命名不影响下载和做种。", "muted"));
+    this.status = el("p", undefined, "batch-status muted"); this.status.dataset.batchStatus = "true";
+    this.status.id = "batch-status"; this.status.setAttribute("role","status"); this.status.setAttribute("aria-live","polite");
+    this.output = el("div"); this.output.dataset.batchPreview = "true";
+    this.editor = new BatchEditor(job, detail, () => this.invalidate());
+    this.gate = new ReviewedRequestGate(() => this.editor.snapshot());
+    this.preview = writeButton("预览完整整理表", () => this.readPreview(), true);
+    this.confirm = writeButton("确认整表方案", () => this.confirmPlan(), true);
+    this.confirm.setAttribute("aria-describedby", "batch-status");
+    unavailable(this.confirm,"先预览当前整表");
+    this.cancel = button("取消本次预览", () => {
+      this.invalidate("本次预览已取消；草稿保留，未确认方案不会执行。");
+      this.editor.clearOrder(); this.controller?.abort();
+    });
+    const actions = el("div", undefined, "actions batch-toolbar"); actions.append(this.preview,this.cancel);
+    this.confirmArea = el("div", undefined, "actions batch-confirm");
+    this.confirmArea.append(this.confirm, el("span", "确认后保存不可变人工意图；全部视频被 Emby 发现后才完成。", "muted"));
+
+    this.node.append(this.editor.node, actions, this.status, this.output, this.confirmArea);
+    const scope = el("details", undefined, "batch-scope");
+    scope.append(el("summary", `${job.sources.length} 个下载文件 · 范围与支持限制`), el("p", "完整任务全部视频及关联字幕一起核对；mkv/mp4，字幕 srt/ass/ssa/vtt。同目录同 stem，最多两个安全语言后缀。辅助文件只绑定指纹。特殊篇、多集单文件、混季及不明确字幕关联暂不支持。", "muted"));
+    this.node.append(scope, this.candidatePanel());
+    this.node.addEventListener("reset", () => { this.editor.clearOrder(); this.invalidate(); });
+  }
+  feedback(text, error = false) {
+    this.status.textContent = text; this.status.className = error ? "batch-status error" : "batch-status muted";
+    this.status.setAttribute("role",error ? "alert" : "status");
+  }
+  invalidate(text = "草稿变更后，请重新预览完整整理表。") {
+    this.gate.invalidate(); this.output.replaceChildren(); unavailable(this.confirm,"先预览当前整表");
+ this.steps.replaceWith(this.steps = batchSteps(1));
+    this.feedback(text);
+  }
+  async readPreview() {
+    if (busy) return;
+    this.invalidate();
+    const ticket = this.gate.begin(), request = this.editor.request();
+    this.controller = new AbortController(); setBusy(true);
+    this.node.setAttribute("aria-busy","true"); this.feedback("正在校验全部源文件、字幕与目标冲突… 可取消，草稿会保留。");
     try {
-      const result=await api("batch-preview",req);
-      if(!owns())return;
-      accepted={snapshot,request:req,plan:result.plan,digest:result.digest};
-      confirm.dataset.unavailable="false";
-      const preview=table(["完整原名 → 目标（含字幕）","指纹"]);
-      result.plan.files.forEach(f=>row(preview.body,[f.source+" → "+f.target,f.fingerprint]));
-      output.append(el("p",`方案 v${result.plan.version} · 共 ${result.plan.manifest.length} 个源文件指纹 / ${result.plan.files.length} 个入库文件。此预览尚未写媒体或生成对比记录。`,"notice"),preview.wrap);
-    }catch(e){if(owns())fail(e)}finally{setBusy(false)}
-  },true),confirm,button("取消本次预览",()=>{invalidate();candidateRevision++;order.checked=false}),output);
-  const candidate=el("div");
-  form.append(writeButton("读取所填目录 / NFO 候选",async()=>{
-    if(busy)return;
-    const g=generation,c=++candidateRevision,dir=directory.value;setBusy(true);candidate.replaceChildren();
-    const owns=()=>g===generation&&c===candidateRevision&&dir===directory.value;
-    try {const result=await api("library-candidates",{directory:dir});if(!owns())return;
-      result.candidates.forEach(c=>candidate.append(button(`填入候选：${c.display_name||"名称未知"} / 季${c.season||"未知"}`,()=>{
-        if(!owns())return;order.checked=false;invalidate();display.value=c.display_name;season.value=c.conflicts.length?"":c.season||"";render();
-      })));
-      candidate.append(el("p","候选仅减少填表；请明确核对本次篇章季号和每集编号，再整表预览、人工确认。","muted"));
-    }catch(e){if(owns())fail(e)}finally{setBusy(false)}
-  }),candidate);
-  render();return form;
+      const result = await api("batch-preview",request,this.controller.signal);
+      if (result.job_version !== request.version || !this.gate.accept(ticket,request,result)) return;
+      this.output.replaceChildren(renderBatchPreview(result));
+      this.confirm.dataset.unavailable = "false"; this.confirm.title = ""; this.confirmArea.hidden = false;
+      this.steps.replaceWith(this.steps = batchSteps(3));
+      this.feedback("完整预览已就绪，尚未确认、未入库。请核对全部视频和字幕，再确认方案。");
+    } catch(e) {
+      if (ticket.owns()) { this.feedback(errors[e.message] || `预览未完成：${e.message}`,true); this.editor.markError(e.message); }
+    } finally {
+      if (!ticket.owns() && this.gate.accepted === null && this.status.textContent.startsWith("正在校验"))
+        this.invalidate("输入已变化，旧响应已丢弃；请重新预览。");
+      this.node.setAttribute("aria-busy","false"); setBusy(false); this.controller = null;
+    }
+  }
+  async confirmPlan() {
+    if (busy) return;
+    const reviewed = this.gate.reviewed();
+    if (!reviewed) { this.editor.clearOrder(); this.invalidate("输入已变化；请先预览当前整表，再确认。"); return; }
+    const ticket = this.gate.begin(); setBusy(true); this.cancel.disabled = true;
+    this.node.setAttribute("aria-busy","true"); this.feedback("正在保存已核对的完整方案… 确认请求发出后无法撤销，请等待状态。");
+    try {
+      await api("batch-confirm",{...reviewed.request,plan_version:reviewed.plan.version,digest:reviewed.digest});
+      if (!ticket.owns()) return;
+      message.className = "notice"; message.textContent = "人工意图已确认，等待执行与全部 Emby 发现；可在对比记录查看实际结果。";
+      await load(false);
+    } catch(e) {
+      if (ticket.owns()) { this.invalidate(); this.feedback(errors[e.message] || `确认未完成：${e.message}`,true); this.editor.markError(e.message); }
+    } finally {
+      if (!ticket.owns() && this.status.textContent.startsWith("正在保存"))
+        this.invalidate("输入已变化；旧确认响应不载入草稿。请刷新任务核对已保存状态。");
+      this.node.setAttribute("aria-busy","false"); this.cancel.disabled = false; setBusy(false);
+    }
+  }
+  candidatePanel() {
+    const details = el("details", undefined, "batch-candidates"), output = el("div");
+    details.append(el("summary","可选 · 从所填目录 / NFO 读取名称与季号候选"), el("p", "候选只帮助填表，不赋予执行授权；仍需完整预览及人工确认。", "muted"));
+    const gate = new ReviewedRequestGate(() => JSON.stringify([this.editor.snapshot(), this.gate.revision]));
+    details.append(writeButton("读取所填目录 / NFO 候选",async () => {
+      if (busy) return;
+      gate.invalidate(); const ticket = gate.begin(); output.replaceChildren(); setBusy(true);
+      try {
+        const result = await api("library-candidates",{directory:this.editor.directory.value});
+        if (!ticket.owns()) return;
+        result.candidates.forEach(c => output.append(button(`填入候选：${c.display_name || "名称未知"} / 季${c.season || "未知"}`, () => {
+          if (!ticket.owns() || busy) return;
+          this.editor.display.value = c.display_name || "";
+          this.editor.season.value = c.conflicts.length ? "" : c.season || "";
+          this.editor.clearOrder(); this.invalidate(); this.editor.update(); output.replaceChildren();
+        })));
+        output.append(el("p", result.candidates.length ? "请核对本次篇章季号与集号。" : "没有可用候选，可继续手动填写本次整理。", "muted"));
+      } catch(e) { if (ticket.owns()) output.replaceChildren(el("p",errors[e.message] || e.message,"error")); }
+      finally { setBusy(false); }
+    }),output);
+    return details;
+  }
+}
+function batchPanel(job, detail) { return new BatchWorkbench(job,detail).node; }
+
+const comparisonStatuses = {
+  confirmed_intent:"人工意图已确认，尚未执行", partial:"部分执行，未完整成功",
+  awaiting_discovery:"全部硬链接，等待全部 Emby 确认", complete:"整包完成",
+  superseded:"原方案已被替换，未计完整成功",
+};
+const changedFieldNames = {target_relative_name:"目标文件名",directory:"目录",display_name:"显示名",season:"季号",episode:"集号",inherited_video_mapping:"沿用视频映射"};
+function executionText(f) {
+  if (!f) return "尚无执行结果";
+  return `${states[f.State] || f.State} · ${f.Video ? f.Discovered ? "Emby 已发现" : "Emby 未发现" : "关联字幕"}`;
+}
+function renderComparison(record) {
+  const intent = record.intent, status = comparisonStatuses[record.status] || record.status;
+  const section = panel(`人工记录 · 方案 v${intent.plan_version}`); section.classList.add("comparison-record");
+  section.append(badge(status,record.status === "complete" && !record.error_code ? "ok" : "warn"),
+    el("p",`human · ${time(intent.created_at)} · 任务版本 ${intent.job_version} · 计划版本 ${intent.plan_version}`,"muted"),
+    el("p","人工意图（不可变） → 原方案实际结果（持续更新）","comparison-key"));
+  const t = comparisonTable(["原名 → 目标", "人工季集意图 / 改动", "实际执行 / 发现"]);
+  intent.changes.forEach((change,i) => {
+    const meaning = el("div");
+    meaning.append(el("p", change.semantics_resolved ? `S${padEpisode(change.season)}E${padEpisode(change.episode)}` : "季集未声明"),
+      el("p", `原识别：季 ${change.before_season || "未声明"} · 相对集 ${change.before_episode || "未声明"} · 总集 ${change.before_absolute || "未声明"}`, "muted"),
+      el("p", "人工改动：" + change.changed_fields.map(k=>changedFieldNames[k] || k).join("、"), "muted"));
+    fileRow(t.body,[filePair(change.source,change.target),meaning,executionText(record.files.find(f=>f.Index===i))],["原名 → 目标","人工季集意图 / 改动","实际执行 / 发现"]);
+  });
+  if (record.error_code) section.append(el("p",errors[record.error_code] || record.error_code,"error"));
+  section.append(t.wrap);
+  const evidence = el("details"); evidence.append(el("summary","记录身份与完整清单"),el("p",intent.sample_id,"mono"),el("p",`摘要 ${intent.digest} · 解析版本 ${intent.parser_version}`,"mono"));
+  const list = el("ul"); intent.manifest.forEach(f=>list.append(el("li",f.source,"mono"))); evidence.append(list); section.append(evidence);
+  return section;
 }
 function comparisonPanel(id) {
-  const p=panel("人工对比记录"),output=el("div");let after=0,readRevision=0;
-  const status={confirmed_intent:"人工意图已确认，尚未执行",partial:"部分执行，未完整成功",awaiting_discovery:"全部硬链接，等待全部 Emby 确认",complete:"整包完成",superseded:"原方案已被替换，未计完整成功"};
-  const read=button("查看对比记录",async()=>{
-    const g=generation,r=++readRevision;
-    try {const data=await api(`comparisons?id=${encodeURIComponent(id)}&after=${after}`);if(g!==generation||r!==readRevision)return;
-      if(!after)output.replaceChildren();
-      data.items.forEach(v=>{
-        const r=v.intent,section=panel(`人工记录 ${r.plan_version} · ${status[v.status]||v.status}`);
-        section.append(el("p",`${r.sample_id} · human · ${time(r.created_at)} · job v${r.job_version} / plan v${r.plan_version}`,"mono"));
-        const t=table(["原名 → 目标","明确季集 / 人工改动","实际执行 / 发现"]);
-        r.changes.forEach((c,i)=>{const f=v.files.find(f=>f.Index===i);row(t.body,[c.source+" → "+c.target,`S${c.season}E${c.episode} / ${c.changed_fields.join("、")}`,(states[f?.State]||f?.State||"尚未执行")+(f?.Video?(f.Discovered?" / 已发现":" / 未发现"):" / 字幕")])});
-        if(v.error_code)section.append(el("p",errors[v.error_code]||v.error_code,"notice"));section.append(t.wrap);output.append(section);
-      });
-      if(!data.items.length)output.append(el("p","没有已确认的人工记录；预览或取消不会生成样本。","muted"));
-      after=data.next;read.textContent=after?"读取后续对比记录":"重新读取对比记录";
-    }catch(e){if(g===generation&&r===readRevision)fail(e)}
+  const p = panel("人工对比记录"), output = el("div"), feedback = el("p",undefined,"muted");
+  feedback.setAttribute("role","status"); let after = 0, readRevision = 0, reading = false;
+  const read = button("查看对比记录",async () => {
+    if (reading) return;
+    const g = generation, revision = ++readRevision; reading = true; read.disabled = true;
+    feedback.textContent = "正在读取人工意图与原计划实际结果…";
+    try {
+      const data = await api(`comparisons?id=${encodeURIComponent(id)}&after=${after}`);
+      if (g !== generation || revision !== readRevision) return;
+      if (!after) output.replaceChildren(); data.items.forEach(record=>output.append(renderComparison(record)));
+      if (!data.items.length && !after) output.append(el("p","没有已确认的人工记录；预览或取消不会生成样本。","muted"));
+      after = data.next; read.textContent = after ? "读取后续对比记录" : "重新读取对比记录"; feedback.textContent = "";
+    } catch(e) { if (g === generation && revision === readRevision) { feedback.className = "error"; feedback.textContent = errors[e.message] || e.message; } }
+    finally { reading = false; read.disabled = false; }
   });
-  p.append(el("p","不可变记录保存人工意图；执行与发现显示原计划的持久事实。部分失败不会标成完整成功。后续 agent 学习尚未实现，候选规则必须人工终审。每页最多20份。","muted"),read,output);return p;
+  p.append(el("p","不可变记录保存 human 人工意图；实际执行与发现独立显示。部分执行和待发现不会标成完成。后续 agent 归纳候选规则尚未实现，启用前必须人工终审。每页最多 20 份。","muted"),read,feedback,output,el("p","本次确认不会自动创建或启用命名规则。重复使用的映射可另行人工维护。","muted"),button("打开命名规则（人工维护）",()=>navigate("rules")));
+  return p;
 }
+
 async function subscriptionsView() {
   const data = await api(
       "subscriptions?after=" + encodeURIComponent(subscriptionCursor),
