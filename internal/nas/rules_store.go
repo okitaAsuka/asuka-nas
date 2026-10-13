@@ -109,6 +109,16 @@ func (s *Store) AddRule(ctx context.Context, r NamingRule) error {
 		return e
 	}
 	defer tx.Rollback()
+	returnErr := addRuleTx(ctx, tx, r)
+	if returnErr != nil {
+		return returnErr
+	}
+	return tx.Commit()
+}
+
+// addRuleTx 允许人工审核与规则落库共享一个事务，仍只创建不可变草稿。
+func addRuleTx(ctx context.Context, tx *sql.Tx, r NamingRule) error {
+	var e error
 	if _, e = tx.ExecContext(ctx, "INSERT OR IGNORE INTO manual_series VALUES(?,?)", r.SeriesID, r.Order); e != nil {
 		return e
 	}
@@ -126,7 +136,7 @@ func (s *Store) AddRule(ctx context.Context, r NamingRule) error {
 	if _, e = tx.ExecContext(ctx, "INSERT INTO naming_events(rule_id,revision,kind,created_at) VALUES(?,?,?,?)", r.ID, r.Revision, "rule_drafted", time.Now().Unix()); e != nil {
 		return e
 	}
-	return tx.Commit()
+	return nil
 }
 func (s *Store) Rule(ctx context.Context, id string, revision int) (NamingRule, error) {
 	var r NamingRule
@@ -147,6 +157,15 @@ func (s *Store) SetRule(ctx context.Context, id string, revision int, enabled bo
 		return e
 	}
 	defer tx.Rollback()
+	if e = setRuleTx(ctx, tx, id, revision, enabled); e != nil {
+		return e
+	}
+	return tx.Commit()
+}
+
+// setRuleTx 保持既有epoch/启用审计边界，供单事务人工批准复用。
+func setRuleTx(ctx context.Context, tx *sql.Tx, id string, revision int, enabled bool) error {
+	var e error
 	var oldRevision, oldEnabled int
 	e = tx.QueryRowContext(ctx, "SELECT revision,enabled FROM naming_active WHERE id=?", id).Scan(&oldRevision, &oldEnabled)
 	on := 0
@@ -172,7 +191,7 @@ func (s *Store) SetRule(ctx context.Context, id string, revision int, enabled bo
 	if _, e = tx.ExecContext(ctx, "INSERT INTO naming_events(rule_id,revision,kind,created_at) VALUES(?,?,?,?)", id, revision, kind, time.Now().Unix()); e != nil {
 		return e
 	}
-	return tx.Commit()
+	return nil
 }
 
 // ResolveNaming 多来源必须得到相同决定；命中停用规则或矛盾不能退回文件名猜测。

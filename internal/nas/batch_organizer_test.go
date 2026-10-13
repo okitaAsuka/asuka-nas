@@ -343,7 +343,7 @@ func TestBatchSchemaMigrationAndRollback(t *testing.T) {
 	batchConfirm(t, f, b, v)
 	f.reopen()
 	var version int
-	if err := f.store.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 6 {
+	if err := f.store.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 7 {
 		t.Fatal(version, err)
 	}
 	if len(comparisons(t, f)) != 1 {

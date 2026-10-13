@@ -107,7 +107,7 @@ func publicError(err error) string {
 		return ""
 	}
 	code := err.Error()
-	for _, v := range strings.Fields(`stale_version stale_plan plan_frozen invalid_job_state fingerprint_changed conflict cross_device permission_denied target_reserved unsafe_path unknown_source invalid_subscription subscription_limit subscription_history_limit subscription_exists subscription_not_found subscription_frozen profile_unavailable rule_invalid rule_invalid_range rule_not_normalized rule_revision_exists rule_not_found series_order_conflict rule_disabled rule_scope_ambiguous title_file_conflict season_conflict absolute_mapping_unresolved source_mapping_unresolved mapping_conflict rule_normalization_unresolved collection_incomplete collection_preview_only episode_unresolved special_episode unsupported_manifest awaiting_plan_confirmation legacy_evidence_unresolved source_disabled invalid_request library_unavailable library_unsafe_path library_read_failed library_limit library_cancelled library_changed candidate_stale invalid_batch order_confirmation_required episode_out_of_bounds duplicate_episode invalid_file_manifest collection_preview_only unsupported_episode_kind unsupported_video unsupported_file_set subtitle_mapping_ambiguous episode_unresolved target_conflict comparison_limit`) {
+	for _, v := range strings.Fields(`stale_version stale_plan plan_frozen invalid_job_state fingerprint_changed conflict cross_device permission_denied target_reserved unsafe_path unknown_source invalid_subscription subscription_limit subscription_history_limit subscription_exists subscription_not_found subscription_frozen profile_unavailable rule_invalid rule_invalid_range rule_not_normalized rule_revision_exists rule_not_found series_order_conflict rule_disabled rule_scope_ambiguous title_file_conflict season_conflict absolute_mapping_unresolved source_mapping_unresolved mapping_conflict rule_normalization_unresolved collection_incomplete collection_preview_only episode_unresolved special_episode unsupported_manifest awaiting_plan_confirmation legacy_evidence_unresolved source_disabled invalid_request library_unavailable library_unsafe_path library_read_failed library_limit library_cancelled library_changed candidate_stale invalid_batch order_confirmation_required episode_out_of_bounds duplicate_episode invalid_file_manifest collection_preview_only unsupported_episode_kind unsupported_video unsupported_file_set subtitle_mapping_ambiguous episode_unresolved target_conflict comparison_limit sample_stale proposal_invalid proposal_unbounded proposal_evidence_conflict proposal_not_found proposal_revision_exists proposal_replay_conflict proposal_limit proposal_stale proposal_trial_stale proposal_conflict proposal_trial_limit`) {
 		if code == v {
 			return v
 		}
@@ -216,6 +216,9 @@ func (m *Management) api(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	s := m.Daemon.Engine.Store
 	path := strings.TrimPrefix(r.URL.Path, "/api/")
+	if m.proposalAPI(w, r, path) {
+		return
+	}
 	if r.Method == "GET" {
 		switch path {
 		case "session":

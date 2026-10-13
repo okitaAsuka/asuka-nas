@@ -72,3 +72,8 @@ schema v4 引入全目标预约与逐文件持久执行，支持人工明确有�
 ## 当前通知边界
 
 专用回环端口只支持GET /v1/events，部署env引用的Bearer不复用管理nonce。NAS与gateway不共享SQLite。gateway单消费者持有独占owner锁，inbox/outbox/cursor同事务；外部ACK之后才能标sent。故障不改变NAS导入/做种。详细失败与隐私契约见NOTIFICATIONS.md。
+
+
+## 映射学习后端检查点 / 2026-10-13
+
+NAS仍是唯一任务/文件/命名事实源；独立默认关闭学习回环服务只导出成功人工对比的最小投影并接受pending候选。agent复用既有provider且无工具访问。批准复用manual规则的事务helper，原子验证候选CAS、当前依据、epoch和有界试算，再创建并启用规则；服务Bearer没有批准接口。原对比和样本/候选正文不可变，规则更新不改已冻结文件。完整DTO见RULE_PROPOSALS_FRONTEND_HANDOFF.md；这是独立前端接入点，尚待两仓最终验收。

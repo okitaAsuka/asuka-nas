@@ -109,7 +109,7 @@ func OpenStore(path string) (*Store, error) {
 		db.Close()
 		return nil, e
 	}
-	if schema > 6 {
+	if schema > 7 {
 		db.Close()
 		return nil, errors.New("unsupported_schema_version")
 	}
@@ -153,12 +153,13 @@ func OpenStore(path string) (*Store, error) {
 	migration += `CREATE TABLE IF NOT EXISTS comparison_records(job_id TEXT NOT NULL REFERENCES jobs(id),plan_version INTEGER NOT NULL,body TEXT NOT NULL,PRIMARY KEY(job_id,plan_version));
  CREATE TRIGGER IF NOT EXISTS comparison_no_update BEFORE UPDATE ON comparison_records BEGIN SELECT RAISE(ABORT,'immutable_comparison'); END;
  CREATE TRIGGER IF NOT EXISTS comparison_no_delete BEFORE DELETE ON comparison_records BEGIN SELECT RAISE(ABORT,'immutable_comparison'); END;`
+	migration += proposalSchema
 	_, e = tx.Exec(migration)
 	if e == nil && schema < 5 {
 		e = migratePlansTx(context.Background(), tx)
 	}
 	if e == nil {
-		_, e = tx.Exec("PRAGMA user_version=6")
+		_, e = tx.Exec("PRAGMA user_version=7")
 	}
 	if e == nil {
 		e = tx.Commit()

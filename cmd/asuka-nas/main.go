@@ -83,6 +83,14 @@ func run() error {
 	daemon.Source.Gap = time.Duration(cfg.FetchIntervalMillis) * time.Millisecond
 	// 各服务先完成初始化，再启动循环；任一失败取消并等待全部退出。
 	workers := []func() error{func() error { return daemon.Run(ctx) }}
+	if cfg.Learning.Enabled {
+		l, h, err := nas.OpenLearningService(cfg.Learning, cfg.Events, store)
+		if err != nil {
+			return err
+		}
+		defer l.Close()
+		workers = append(workers, func() error { return nas.ServeManagement(ctx, l, h) })
+	}
 	if cfg.Events.Enabled {
 		l, h, err := nas.OpenEventService(cfg.Events, store)
 		if err != nil {
