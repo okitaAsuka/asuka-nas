@@ -7,7 +7,7 @@
 | RSS magnet/enclosure → qB 5.x 下载/去重 | 已实现，fake HTTP验收 |
 | 本机管理页保存/预览/启用人工规则、下一集自动映射 | 已实现；篇章季号/目录由人明确选择 |
 | 单任务批量人工整理与不可变对比记录 | 已由独立前端owner完成并通过基线CI/UI验收 |
-| agent从人工对比归纳待审规则 | 后端已实现并跨仓fake验收：agent保守提议、人工可声明最多32集范围、试算显示未验证部分、终审才启用；独立前端和父集成待完成 |
+| agent从人工对比归纳待审规则 | 前后端已集成：agent保守提议、人工可声明最多32集范围、试算区分已验证/未验证、人工终审才启用；跨仓fake已验，范围到E02真实浏览器/最终CI见 RULE_REVIEW_UI_EVIDENCE.md |
 | 用户选择目录/NFO → 可解释候选 → 人工规则草稿 | 已实现；只读有界扫描，预览/保存重查，不猜篇章季号，无模型学习 |
 | 明确有界总集数/相对编号、合集逐文件冻结/恢复、硬链接 | 已实现；不猜现实季度，不删源 |
 | Emby refresh与独立逐视频发现 | 已实现；全部视频确认后才discovered/ready |
@@ -22,7 +22,7 @@
 
 已有候选里程碑与自审证据见 [MAPPING_EVIDENCE.md](MAPPING_EVIDENCE.md)；通知实现记录见 [NOTIFICATIONS_REVIEW.md](NOTIFICATIONS_REVIEW.md)。
 
-本轮交接见 [RULE_PROPOSALS_FRONTEND_HANDOFF.md](RULE_PROPOSALS_FRONTEND_HANDOFF.md)，配置和自审/未验边界见 [RULE_PROPOSALS_EVIDENCE.md](RULE_PROPOSALS_EVIDENCE.md)。本轮不声明已完成模型学习里程碑。
+本轮交接见 [RULE_PROPOSALS_FRONTEND_HANDOFF.md](RULE_PROPOSALS_FRONTEND_HANDOFF.md)，配置和自审/未验边界见 [RULE_PROPOSALS_EVIDENCE.md](RULE_PROPOSALS_EVIDENCE.md)。前端集成与实际浏览器范围审核证据见 [RULE_REVIEW_UI_EVIDENCE.md](RULE_REVIEW_UI_EVIDENCE.md)；真实模型和生产服务仍未验。
 
 ## 历史阶段记录（不作为当前功能矩阵）
 

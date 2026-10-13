@@ -13,18 +13,19 @@ with sync_playwright() as p:
     page = browser.new_page(viewport={'width':1440, 'height':1100})
     exceptions = []
     page.on('pageerror', lambda e: exceptions.append(str(e)))
-    def open_scenario(name):
+    def open_scenario(name, latest=False):
         page.goto(config['urls'][name])
         page.get_by_role('button', name='命名规则', exact=True).click()
         expect(page.get_by_role('heading', name='agent 待审建议')).to_be_visible()
-        page.get_by_role('button', name='审核建议').first.click()
+        reviews = page.get_by_role('button', name='审核建议')
+        (reviews.last if latest else reviews.first).click()
         expect(page.get_by_role('heading', name='审核 agent 规则建议')).to_be_visible()
     def trial():
         page.get_by_role('button', name='历史试算当前版本').click()
         expect(page.locator('[data-proposal-trial]')).to_contain_text('完整试算覆盖集合')
     def confirm():
         page.locator('[name=proposal_approval]').check()
-        if config['scope'] and page.locator('[name=proposal_scope_approval]').is_visible():
+        if page.locator('[name=proposal_scope_approval]').is_visible():
             page.locator('[name=proposal_scope_approval]').check()
     status = page.locator('[data-proposal-status]')
     output = page.locator('[data-proposal-trial]')
@@ -95,28 +96,80 @@ with sync_playwright() as p:
     expect(status).to_be_focused()
     page.locator('[name=proposal_subscription]').fill('fixture')
     page.locator('[name=proposal_explanation]').fill('人工核对原始记录后保留第2季映射')
-    if config['scope']:
-        page.locator('[name=proposal_scope_declaration]').check()
-        page.locator('[name=proposal_end]').fill('2')
-        page.locator('[name=proposal_scope_reason]').fill('人工确认此订阅第二季第1至2集沿用相同映射；第2集尚未验证。')
+    # Widening without a fresh explicit human declaration must fail and retain draft.
+    page.locator('[name=proposal_end]').fill('12')
+    page.get_by_role('button', name='保存为新 revision').click()
+    expect(status).to_contain_text('范围必须有限且有依据')
+    expect(page.locator('[name=proposal_end]')).to_have_value('12')
+    page.locator('[name=proposal_scope_declaration]').check()
+    before = len(posts)
+    page.locator('[name=proposal_scope_reason]').fill('界' * 171)  # 513 UTF-8 bytes
+    page.get_by_role('button', name='保存为新 revision').click()
+    expect(page.locator('[name=proposal_scope_reason]')).to_be_focused()
+    expect(page.locator('[name=proposal_scope_reason]')).to_have_attribute('aria-invalid', 'true')
+    assert len(posts) == before
+    reason = '人工确认此订阅第二季第1至12集沿用相同映射；第2至12集尚未验证。'
+    page.locator('[name=proposal_scope_reason]').fill(reason)
     posts.clear()
     page.get_by_role('button', name='保存为新 revision').evaluate('(b)=>{b.click();b.click()}')
     expect(page.get_by_text('revision 2 / version 1', exact=False).first).to_be_visible()
     assert len([x for x in posts if x.endswith('/proposal-revise')]) == 1
     expect(output).to_be_empty(); expect(approve).to_be_disabled()
     page.get_by_text('候选审计与版本历史', exact=False).click()
+    expect(page.locator('.proposal-review details').first.get_by_text('人工声明有限范围 ·', exact=False)).to_be_visible()
     page.get_by_role('button', name='查看 revision 1', exact=True).click()
     expect(page.get_by_text('已过期 · 不可批准', exact=True)).to_be_visible()
     expect(page.get_by_role('button', name='历史试算当前版本')).to_be_disabled()
     page.get_by_text('候选审计与版本历史', exact=False).click()
     page.get_by_role('button', name='查看 revision 2', exact=True).click()
-    trial()
+    # A saved human declaration participates in every request snapshot and invalidation.
+    for outcome in ['success', 'error']:
+        for change in ['scope', 'reason', 'silent-reason', 'silent-scope', 'bound', 'reset', 'cancel', 'navigate', 'candidate']:
+            held = []
+            page.route('**/api/proposal-preview', lambda route: held.append(route))
+            page.get_by_role('button', name='历史试算当前版本').click()
+            page.wait_for_timeout(60); assert len(held) == 1
+            if change == 'scope': page.locator('[name=proposal_scope_declaration]').uncheck()
+            elif change == 'reason': page.locator('[name=proposal_scope_reason]').fill(reason + '修订')
+            elif change == 'silent-reason': page.locator('[name=proposal_scope_reason]').evaluate('(n)=>n.value="静默替换声明理由"')
+            elif change == 'silent-scope': page.locator('[name=proposal_scope_declaration]').evaluate('(n)=>n.checked=false')
+            elif change == 'bound': page.locator('[name=proposal_end]').fill('13')
+            elif change == 'reset': page.locator('[data-proposal-editor]').evaluate('(n)=>n.dispatchEvent(new Event("reset",{bubbles:true}))')
+            elif change == 'cancel': page.get_by_role('button', name='取消本次审核 / 试算').click()
+            elif change == 'candidate':
+                page.get_by_text('候选审计与版本历史', exact=False).click()
+                page.get_by_role('button', name='查看 revision 1', exact=True).click()
+            else:
+                page.get_by_role('button', name='健康与接入', exact=True).click()
+                expect(page.get_by_role('heading', name='本地服务与接入边界')).to_be_visible()
+            if outcome == 'error':
+                body = held[0].request.post_data_json; body['version'] = 999
+                response = held[0].fetch(post_data=json.dumps(body))
+            else: response = held[0].fetch()
+            assert (response.status == 200) == (outcome == 'success')
+            held[0].fulfill(response=response); page.unroute('**/api/proposal-preview'); page.wait_for_timeout(80)
+            if change != 'navigate':
+                expect(output).to_be_empty(); expect(approve).to_be_disabled()
+                assert 'error' not in status.get_attribute('class')
+            else:
+                expect(page.get_by_role('heading', name='本地服务与接入边界')).to_be_visible()
+                assert page.locator('#message').inner_text() == ''
+            open_scenario('approve', latest=True)
+            expect(page.locator('[name=proposal_scope_declaration]')).to_be_checked()
+            expect(page.locator('[name=proposal_scope_reason]')).to_have_value(reason)
+    print('PASS saved declaration ownership: toggle/reason/silent scope and reason/bounds/reset/cancel/navigation/history; late real API success and error discarded')
+    with page.expect_response('**/api/proposal-preview') as response:
+        trial()
+    dto = response.value.json()
+    assert dto['revision'] == 2 and dto['version'] == 1
+    assert dto['scope_review'] == {'verified_episodes':[1], 'declared_episodes':{'start':1,'end':12}, 'unverified_episodes':list(range(2,13)), 'reason':reason}
+    assert len(dto['digest']) == 64
     page.locator('[name=proposal_approval]').check()
-    if config['scope']:
-        expect(output).to_contain_text('已验证集数 · 1 集：1')
-        expect(output).to_contain_text('人工声明但未验证 · 1 集：2')
-        expect(approve).to_be_disabled()
-        page.locator('[name=proposal_scope_approval]').focus(); page.keyboard.press('Space')
+    expect(output).to_contain_text('已验证集数 · 1 集：1')
+    expect(output).to_contain_text('人工声明但未验证 · 11 集：2、3、4、5、6、7、8、9、10、11、12')
+    expect(output).to_contain_text('声明理由：' + reason)
+    expect(approve).to_be_disabled()
+    page.locator('[name=proposal_scope_approval]').focus(); page.keyboard.press('Space')
     expect(approve).to_be_enabled()
     page.screenshot(path='/tmp/asuka-rule-review-desktop.png', full_page=True)
     page.set_viewport_size({'width':390,'height':844})
@@ -137,12 +190,11 @@ with sync_playwright() as p:
     expect(page.get_by_text('已批准 · 规则已启用', exact=True)).to_be_visible()
     assert len([x for x in posts if x.endswith('/proposal-approve')]) == 1
     expect(approve).to_be_disabled()
-    if config['scope']:
-        fixture('next')
-        page.get_by_role('button',name='任务与入库',exact=True).click()
-        expect(page.get_by_text('已硬链接',exact=True)).to_have_count(2)
-        print('PASS real approval → next E02 automatic hardlink/discovery under declared finite scope')
-    else: print('NOT RUN next E02: backend scope declaration commit not integrated')
+    fixture('next')
+    page.get_by_role('button',name='任务与入库',exact=True).click()
+    expect(page.get_by_text('已硬链接',exact=True)).to_have_count(2)
+    expect(page.get_by_text('已就绪',exact=True)).to_have_count(2)
+    print('PASS real scope E01–12: verified E01 / all 11 unverified episodes → explicit human approval → next E02 automatic hardlink/discovery')
     open_scenario('epoch'); trial(); confirm(); fixture('epoch'); approve.click()
     expect(status).to_contain_text('重新历史试算'); expect(approve).to_be_disabled(); expect(output).to_be_empty()
     trial(); confirm(); approve.focus(); page.keyboard.press('Enter')

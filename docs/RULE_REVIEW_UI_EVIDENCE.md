@@ -2,7 +2,7 @@
 
 ## 版本与边界
 
-前端基线 `b8298f8f168356e47a90ba033fa5d1f532a1f99b`，独立分支 `codex/nas-rule-review-ui-20261013`。仅修改 web、浏览器测试、verify-ui 入口和本文；不修改业务 Go/SQL/DTO/认证/CSP。未递归委派、合并 main、创建 PR 或部署。父将回收后端最新提交再集成；范围 DTO 按父确认的 `scope_declaration` / `scope_review` 合同接入。
+前端基线 `b8298f8f168356e47a90ba033fa5d1f532a1f99b`，独立分支 `codex/nas-rule-review-ui-20261013`。仅修改 web、浏览器测试、verify-ui 入口和本文；不修改业务 Go/SQL/DTO/认证/CSP。未递归委派、合并 main、创建 PR 或部署。已在原前端HEAD `041420df3ad58489fe84d1a6e05ece7a571c8acd` 上 cherry-pick 后端 `82c525958faee8a37adb1e5fb727f64581a8f985`（本地同内容提交 `9ae64f9`）；范围 DTO 按父确认的 `scope_declaration` / `scope_review` 合同接入。
 
 ## 交互与可复用组件
 
@@ -23,7 +23,7 @@
 
 ## 生产 API 浏览器门与 CI
 
-`TestRuleProposalBrowserLoop`/`tests/proposal_browser.py` 复用 `learningFixture`，真实 SQLite、生产 LearningHandler/Management、临时媒体文件、fake 模型/qB/Emby。覆盖人工记录→agent候选→新revision→试算→批准，后端人工范围提交集成后验证 E02 自动硬链接/发现；另外验证拒绝不启用、stale/历史、epoch恢复、冲突锁定、23个revision分页、双击、晚success/error、取消、键盘和390px。
+`TestRuleProposalBrowserLoop`/`tests/proposal_browser.py` 复用 `learningFixture`，真实 SQLite、生产 LearningHandler/Management、临时媒体文件、fake 模型/qB/Emby。覆盖人工记录→agent候选→新revision→试算→批准，强制验证 E01–12 人工声明、已验证E01/11个未验证集数和 E02 自动硬链接/发现；另外验证拒绝不启用、stale/历史、epoch恢复、冲突锁定、23个revision分页、双击、晚success/error、取消、键盘和390px。
 
 `make verify-ui` 保留四组旧浏览器门并增加新门。已回收完整日志：`c36cc7fd46bac687fb998168720550e97f9993de` 的 [CI #18](https://github.com/okitaAsuka/asuka-nas/actions/runs/38371932356) 与 `9623b8007f279be07339f2c1291be7124be376db` 的 [CI #19](https://github.com/okitaAsuka/asuka-nas/actions/runs/38372444731) 均成功。两次为真实 Go 1.26.9，make verify 的格式/vet/race/build/5项Python预检与四组旧浏览器回归、新生产API浏览器门全部通过；#19还运行了独立模拟布局门。取消已送达批准后晚响应不显示成功、重读实际approved，以及生产学习候选中的恶意模型字符串均通过。最终自审修复后的候选CI将在交付回复绑定准确SHA。四组旧 Python/Go 浏览器文件保持未改。
 
@@ -31,8 +31,21 @@
 
 初始化放在所有审核类定义之后，避免顶层 await 下导航遇到未初始化模块状态。人工确认开关不改变保存内容快照，但所有决定入口重新核对快照；静默修改不会绕过授权。取消在途写仅使 UI 响应过期，提示用户重新读取服务实际状态，不假定后端撤销。新revision保存/批准/拒绝完成后重新读取并核对实际状态，不乐观显示成功。分页到首/末页使按钮不可用时将键盘焦点移至计数状态，避免焦点丢失。Go空slice可能返回null，范围集数按空集合安全显示；候选声明存在但试算缺失scope_review时拒绝接受试算。来源长文本使用断行避免窄屏溢出。
 
-## 尚待父集成
+## 旧前端检查点未运行项（本轮解除）
 
-截至前端最终候选制作，后端分支仍为基线 b8298f8，父已批准的人工范围DTO实现SHA尚未提供。当前生产E2E明确输出 `NOT RUN next E02: backend scope declaration commit not integrated`；不能把旧基线的单集规则批准等同于后续E02自动。前端声明、理由、试算区分与二次确认已在模拟接口检查，但真实声明保存/试算/批准→E02执行必须在父回收后端提交后重跑。本测试通过JSON tag识别新合同，并使用管理API制作分页revision，避免绑定后端新增方法签名。
+旧前端 `041420d` 在后端增补到位前，生产E2E明确输出 `NOT RUN next E02`。本轮后端82c5259已集成，删掉所有scope条件跳过与NOT RUN分支；Go编译需要真实声明字段，浏览器需要真实scope_review DTO与完整verified/unverified集合，缺少合同或E02自动链不能完成直接失败。原“仍需父整合后端”阻塞已解除。
+
 
 CI运行中的真实API桌面与390px截图只保存在runner临时目录，没有上传或取回；真实API窄屏通过Chromium无溢出断言，实际截图目检仅为本机模拟API布局。未访问真实NAS/真实模型/真实qB/Emby。
+
+## 前后端集成强制验收 / 2026-10-13
+
+本轮仅集成父指定后端提交，业务实现无另行修改。前端按冻结合同将声明理由校验收紧到512字节，并将proposal_scope_declared审计翻译为人工声明有限范围。
+
+生产浏览器新增强制路径：E01人工原始记录→agent候选→未声明扩大范围失败且保留草稿→显式声明E01–12/理由→双击仅一次新revision→旧revision stale/不可批准→当前成功试算精确verified=[1]、unverified=[2..12]和理由→一般人工确认仍不能批准→未验证范围二次确认→双击批准/取消晚响应/重新读取actual approved→新E02无需人工确认自动硬链接及fake Emby发现。Go核对目标同inode、原E01冻结plan/人工意图不变、样本feed仍只有原E01且总下载恰好两次。
+
+保存后的声明也覆盖真实API晚success/error矩阵：开关、理由、静默开关/理由、边界、reset、取消、导航和历史revision切换；均不能接收旧试算。513 UTF-8字节理由在前端定位阻止提交，符合后端512字节上限。保留拒绝、stale、epoch、冲突、23revision分页、不可信模型文本、键盘和390px，以及原四组浏览器回归。
+
+本机模拟布局检查已通过。当前环境仍无预装SQLite模块缓存，既有现代SQLite下载Forbidden不重试/换源；真实生产浏览器与最终完整验证使用授权功能分支CI。集成最终SHA/CI链接及结果在最终交付回复绑定，不把旧前端CI当作本轮集成通过。
+
+父提供并已完成的独立跨仓证据：NAS后端CI [38374145844](https://github.com/okitaAsuka/asuka-nas/actions/runs/38374145844)，agent `5e2d572293ed0074bdc5280caffe10edf18eafb0` CI [38374847569](https://github.com/okitaAsuka/asuka-agent/actions/runs/38374847569)；后端owner跨仓race smoke通过真实handler/worker、模型stub、ACK丢失重启只一次模型调用、人工声明1–12批准及E02实际硬链接/发现。这是父交接的实跑证据，当前前端环境没有重跑两仓smoke。

@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -22,14 +21,17 @@ func TestRuleProposalBrowserLoop(t *testing.T) {
 	}
 	ctx := context.Background()
 	type scenario struct {
-		f        *fixture
-		proposal RuleProposal
-		input    ProposalInput
-		url      string
+		f            *fixture
+		proposal     RuleProposal
+		input        ProposalInput
+		url          string
+		sample       LearningSample
+		planDigest   string
+		intentDigest string
 	}
 	scenarios := map[string]*scenario{}
 	for _, name := range []string{"approve", "reject", "stale", "epoch", "conflict", "pages"} {
-		f, _, in := learningFixture(t)
+		f, sample, in := learningFixture(t)
 		// 模型fake的有限数据经生产学习服务提交；浏览器从未拿到学习Bearer。
 		model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { json.NewEncoder(w).Encode(in) }))
 		res, err := model.Client().Get(model.URL)
@@ -79,17 +81,9 @@ func TestRuleProposalBrowserLoop(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		scenarios[name] = &scenario{f, p, in, web.URL}
+		scenarios[name] = &scenario{f: f, proposal: p, input: in, url: web.URL, sample: sample, planDigest: PlanDigest(f.job().Plan), intentDigest: digestStringJSON(comparisons(t, f)[0].Intent)}
 	}
 	var nextID string
-	// 依JSON合同识别后端增补，不依赖其内部Go字段名。
-	hasScope := false
-	proposalType := reflect.TypeOf(RuleProposal{})
-	for i := 0; i < proposalType.NumField(); i++ {
-		if strings.Split(proposalType.Field(i).Tag.Get("json"), ",")[0] == "scope_declaration" {
-			hasScope = true
-		}
-	}
 	control := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var err error
 		switch r.URL.Path {
@@ -98,7 +92,7 @@ func TestRuleProposalBrowserLoop(t *testing.T) {
 			for name, s := range scenarios {
 				urls[name] = s.url
 			}
-			json.NewEncoder(w).Encode(map[string]any{"urls": urls, "scope": hasScope})
+			json.NewEncoder(w).Encode(map[string]any{"urls": urls})
 			return
 		case "/epoch":
 			s := scenarios["epoch"]
@@ -154,7 +148,7 @@ func TestRuleProposalBrowserLoop(t *testing.T) {
 		t.Fatal(err)
 	}
 	approved, err := scenarios["approve"].f.store.Proposal(ctx, scenarios["approve"].proposal.ID, 2)
-	if err != nil || approved.State != "approved" {
+	if err != nil || approved.State != "approved" || approved.ScopeDeclaration == nil || approved.ScopeDeclaration.Episodes.End != 12 {
 		t.Fatal("approval not durable", approved, err)
 	}
 	for _, name := range []string{"reject", "stale", "conflict"} {
@@ -164,7 +158,7 @@ func TestRuleProposalBrowserLoop(t *testing.T) {
 			t.Fatal("unexpected rule write", name, epoch, e)
 		}
 	}
-	if hasScope {
+	{
 		f := scenarios["approve"].f
 		next, e := f.store.Get(ctx, nextID)
 		if e != nil || next.Import != "imported" || next.Discovery != "confirmed" || next.Plan == nil || next.Plan.Files[0].Target != "Example/Season 02/Example - S02E02.mkv" {
@@ -177,6 +171,18 @@ func TestRuleProposalBrowserLoop(t *testing.T) {
 		dst, e := os.Stat(filepath.Join(f.library, next.Plan.Files[0].Target))
 		if e != nil || !os.SameFile(src, dst) {
 			t.Fatal("next episode not hardlink", e)
+		}
+		original, e := f.store.Get(ctx, scenarios["approve"].sample.JobID)
+		if e != nil || PlanDigest(original.Plan) != scenarios["approve"].planDigest {
+			t.Fatal("scope changed frozen E01 plan", e)
+		}
+		records, _, e := f.store.ComparisonPage(ctx, original.ID, 0)
+		if e != nil || len(records) != 1 || digestStringJSON(records[0].Intent) != scenarios["approve"].intentDigest {
+			t.Fatal("scope changed original human intent", e)
+		}
+		feed, e := f.store.LearningSamples(ctx, 0)
+		if e != nil || len(feed.Items) != 1 || feed.Items[0].Sample.Ref != scenarios["approve"].sample.Ref || f.adds != 2 {
+			t.Fatal("E02 required a new human sample or duplicate download", e, len(feed.Items), f.adds)
 		}
 	}
 }

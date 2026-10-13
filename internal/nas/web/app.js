@@ -2171,7 +2171,7 @@ class ProposalEditor {
     );
     f.scope_reason = textArea(
       scope,
-      "人工范围声明理由 · 说明为何适用未验证集数",
+      "人工范围声明理由 · 最多512字节，说明为何适用未验证集数",
       "proposal_scope_reason",
       proposal.scope_declaration?.reason || "",
     );
@@ -2308,7 +2308,7 @@ class ProposalEditor {
       if (bytes(f[k].value) > max) invalid.push(k);
     if (
       this.scopeCheck.checked &&
-      (!f.scope_reason.value.trim() || bytes(f.scope_reason.value) > 2000)
+      (!f.scope_reason.value.trim() || bytes(f.scope_reason.value) > 512)
     )
       invalid.push("scope_reason");
     if (!invalid.length) return true;
@@ -2702,6 +2702,7 @@ async function proposalDetail() {
     proposal_human: "人工新版本",
     proposal_submitted: "agent 提交候选",
     proposal_revised: "人工保存新版本",
+    proposal_scope_declared: "人工声明有限范围",
     proposal_approved: "人工批准并启用",
     proposal_rejected: "人工拒绝",
     proposal_stale: "依据或版本过期",
