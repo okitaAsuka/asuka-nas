@@ -68,7 +68,7 @@ with sync_playwright() as p:
     assert len(saves) == 1, saves
     fixture('tick')
     page.get_by_role('button', name='任务与入库', exact=True).click()
-    expect(page.get_by_text('待人工确认', exact=True)).to_be_visible()
+    expect(page.locator('tbody').get_by_text('待人工确认', exact=True)).to_be_visible()
     page.get_by_role('button', name='命名规则', exact=True).click()
     page.get_by_role('button', name='启用此版本').click()
     expect(page.get_by_role('button', name='停用', exact=True)).to_be_visible()
