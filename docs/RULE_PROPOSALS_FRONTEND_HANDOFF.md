@@ -11,7 +11,7 @@
 在现有命名规则页加入“agent待审建议”，复用已有安全DOM、请求门、预览快照和状态归属。以候选清单 → 原始人工依据 → 规则范围/解释/例外 → 历史试算 → 批准/拒绝表达。
 候选本身不会生成本次文件计划、改变下载/做种或迁移冻结文件。不要将候选提交成功写成规则已启用；只有 `approved` 才代表人批准并原子启用。
 `pending` 待审、`approved` 已批准、`rejected` 已拒绝、`stale` 依据过期或已被新revision取代；状态同时有文字，不能只靠颜色。
-不按模型置信度自动批准。不要自行填出未来季号或扩展episode区间；本轮保守限于已观察连续集数，模型不能表达的映射会无候选。
+不按模型置信度自动批准。agent不能自行扩展范围或猜未来季号；人工可显式声明最多32集的有限范围，未验证集数必须清楚展示。模型不能表达的映射会无候选。
 人工修改先保存为新revision，再重新试算；输入/候选revision/version/页面/导航/取消变化使旧试算失效。批准只能使用成功试算返回的 `epoch/digest` 和同一候选版本。显示所有依据和试算覆盖集合、冲突与范围外结果；`truncated=true` 必须显示覆盖有限，不承诺全历史或所有未来资源。
 前端不得使用学习服务Bearer，不新增凭据或改变CSP/Origin/CSRF。所有文件名/标题/模型解释都是不可信字符串，按textContent渲染，不执行HTML/链接/脚本。
 
@@ -24,7 +24,7 @@
 | GET `/api/proposals?after=0` | 非负audit创建seq游标 | `{items: RuleProposal[], next: number}`；每页20，next=0表示无下页 |
 | GET `/api/proposal?id=…&revision=1` | id、正整数revision | RuleProposal；此读取核对依据，pending失效会持久标stale并增加version |
 | GET `/api/proposal-audit?id=…` | id | `{items:[{seq,revision,kind,created_at}]}`，最近100条 |
-| POST `/api/proposal-revise` | `{id,revision,version,input:ProposalInput}` | 新RuleProposal；旧版stale，revision+1/version=1 |
+| POST `/api/proposal-revise` | `{id,revision,version,input:ProposalInput,scope_declaration?:ScopeDeclaration}` | 新RuleProposal；旧版stale，revision+1/version=1 |
 | POST `/api/proposal-preview` | `{id,revision,version}` | ProposalTrial，零媒体/规则写入 |
 | POST `/api/proposal-approve` | `{id,revision,version,epoch,digest}` | `{ok:true}`；原子CAS/试算/规则存储/启用/审计 |
 | POST `/api/proposal-reject` | `{id,revision,version}` | `{ok:true}`；不创建或启用规则 |
@@ -49,7 +49,7 @@
 }
 ```
 
-Rule使用现有NamingRule字段；可选 `identity_normalization_version` 仅0/现版本1；可选 `absolute:{start,end,relative_start}` 表达有限总集映射。ID和revision由后端固定，编辑表单不允许用户改id/依据集合；只可在同一依据内修改规则字段与解释。样本1–8个、别名1–8个、说明1–2000字节、例外与不确定性各≤8条/每条≤512字节。季1–99、集1–999，连续范围最多32集且每集必须有成功人工依据。目录相对路径≤512字节、显示名单段≤200字节。禁止URL/GUID/magnet/tracker/凭据、任意regex、命令或脚本字段；未知JSON字段拒绝。
+Rule使用现有NamingRule字段；可选 `identity_normalization_version` 仅0/现版本1；可选 `absolute:{start,end,relative_start}` 表达有限总集映射。ID和revision由后端固定，编辑表单不允许用户改id/依据集合；只可在同一依据内修改规则字段与解释。样本1–8个、别名1–8个、说明1–2000字节、例外与不确定性各≤8条/每条≤512字节。季1–99、集1–999，连续范围最多32集；agent提议的每集必须有成功依据。人工修改扩大范围必须显式提交下文scope_declaration，未验证范围不是模型证实。目录相对路径≤512字节、显示名单段≤200字节。禁止URL/GUID/magnet/tracker/凭据、任意regex、命令或脚本字段；未知JSON字段拒绝。
 
 ```json
 {
@@ -63,6 +63,28 @@ Rule使用现有NamingRule字段；可选 `identity_normalization_version` 仅0/
 试算结果 `matched/not_matched/out_of_scope/conflict`。coverage是准确样本集合，最多2048条结果、1000条当前身份规则、100份已导出成功样本（显式依据优先，其余最新序号）。不是全数据库、NFO扫描或真实NAS兼容保证。冲突包括人工目标不一致、现有启用/停用身份规则矛盾。冲突数量>0禁止批准。试算无外部网络/文件操作。
 
 前端依据详情：候选仅有SampleRef，需要显示原始成功依据时调用下文新增 `/api/proposal-samples`。返回LearningSample投影；原完整对比记录仍可按job_id调用既有 `/api/comparisons?id=…&after=…`。
+
+## 人工声明有限范围（父任务确认的DTO增补）
+
+只有POST `/api/proposal-revise`接受顶层可选 `scope_declaration`；不放进ProposalInput或agent提交DTO。声明生成新的human revision，候选顶层返回同名字段；未声明时省略。理由为1–512字节、不含URL/凭据/控制字符。
+
+```json
+{
+  "id":"rp_…","revision":1,"version":1,
+  "input":{"protocol":1,"samples":[],"rule":{"episodes":{"start":1,"end":12}},"explanation":"…","uncertainties":[],"exceptions":[]},
+  "scope_declaration":{"episodes":{"start":1,"end":12},"reason":"人工确认本季第一至十二集"}
+}
+```
+
+示例仅突出增补字段，input须保留完整原有合同与原始依据。`episodes`必须与最终rule.episodes完全一致，季1–99/集1–999、连续范围最多32集。可选 `absolute:{start,end,relative_start}` 必须与rule.absolute完全一致，有限映射还要与原成功样本一致；不允许变更已观察偏移或推断未来季号。每次修改都必须显式重传匹配的新声明：缺失不能默默继承，字段不匹配拒绝。
+
+试算顶层仅在声明存在时返回：
+
+```json
+{"scope_review":{"verified_episodes":[1],"declared_episodes":{"start":1,"end":12},"unverified_episodes":[2,3,4,5,6,7,8,9,10,11,12],"reason":"人工确认本季第一至十二集"}}
+```
+
+可选absolute与声明相同。verified仅从本次准确coverage里的成功matched事实计算，不能将人工声明填成已验证；reason/绝对映射/已验证与未验证数组全部纳入trial.digest。显示声明理由、全部未验证集数并显式终审。`proposal_scope_declared`审计记录声明动作。学习服务不接受该字段；人工管理候选入口拒绝带服务Authorization的请求，即使Origin/nonce正确也返回403 csrf_rejected。原始样本、文件计划和冻结目标保持不变。
 
 ## 授权样本详情
 
