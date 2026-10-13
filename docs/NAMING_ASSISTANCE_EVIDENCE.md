@@ -14,7 +14,7 @@ NAS基线 e4bdde7e53ffc397580526e6b78314c52e8fc6cd；agent基线 5e2d572293ed007
 
 | 命令 | 结果 |
 |---|---|
-| NAS `make verify` | PASS：gofmt、全仓vet、全仓race tests、build、5项既有Python预检安全测试；语义/自动增补全量运行领域包69.321s；随后人工fallback补丁的最终全量正在运行，结果由后续证据提交补记 |
+| NAS `make verify` | PASS：gofmt、全仓vet、全仓race tests、build、5项既有Python预检安全测试；最终人工fallback候选全量运行领域包69.909s（2026-10-13本轮实际exit0） |
 | agent `go test -race -count=1 ./...` | PASS：42个有测试包，另含无测试包 |
 | agent `go vet ./...` / `go build ./...` | PASS |
 | NAS `go test -race ./internal/nas -run '^TestNaming' -count=1` | PASS；全检后追加来源/schema7保留/离线做种测试另作定向复验 |
@@ -67,3 +67,18 @@ DTO差异已在HANDOFF冻结：snapshot.semantic_digest/plan_digest/trigger；jo
 全部12场景race PASS，生产handler/SQLite/worker、真实临时硬链接/fakeEmby均实际完成；以上人工fallback都被断言不进入纯人工learning。新增NAS五类定向race还覆盖拒绝、上下文/规则/指纹过期和离线，人工preview之后再次改写仍拒绝，重预览可恢复，无新模型请求。agent新增语义投影测试确认审计job版本可变化，人工计划摘要被篡改则拒绝。原纯人工E01→待审有界规则→人终审→E02自动路径再次跨仓PASS。
 
 既有断言调整：首版TestNamingOfflineDoesNotHoldSeedDeadline的“旧版本应拒绝”改为本次明确要求的“正交seed进展原结果仍有效且请求1”；manual_provenance原“普通batch应拒绝”改为“当前人工preview可独立批准、不可变原建议/模型来源保留且learning空”。没有绕开断言或删安全覆盖。
+
+
+## 最终检查点确认
+
+已推送且实际核对远端的代码候选：NAS `9288389e706783dbd81df8984354b2d8f390a4c9`，agent `ef259e8329a2473ac233ed52fa0bb3cdd8a9c892`，两者均在codex/nas-naming-assistance-20261013。后续仅此证据文档更新，最终文档提交SHA由交付报告返回。
+
+在disconnected通知后的同一可执行环境，以下最终命令均已完成并返回exit0，不是推测成功：
+
+- NAS `make verify`：格式、全仓vet、全仓race tests（cmd 2.476s、领域69.909s）、build、5项Python预检安全测试PASS。
+- agent `go test -race -count=1 ./...`：42个测试包PASS；后续追加语义投影/人工fallback跨仓测试后，最终`go test -race ./internal/apps/gateway/naslearning -count=1`再次PASS（1.317s），`go vet ./...`及`go build ./...`exit0。
+- 两仓12场景`nas-naming-smoke.py`：最终agent 2.583s / NAS 5.021s，race PASS；拒绝/过期/离线后真实普通batch handler成功，原建议状态/结果逐字保留，所有人工fallback记录明确model_assisted_human，learning页空；请求数1，calls分别1/1/0。
+- 原`nas-rule-proposals-smoke.py`再次PASS；纯人工learning与有界人工终审规则路径保留。
+- NAS新增命名定向race包括坏输入扫描公平性、人工preview后改写、真正语义变化拒绝，均PASS；两仓diff检查PASS。
+
+执行器可用、工作已持久和推送；没有遗留运行命令或后端阻塞。新前端候选e3d3ef610f626b2de8298e1b682044cd48857652及其TestNamingAssistanceBrowserLoop、包装与最终CI仍由父整合/验收；本owner未合并、未修改web/浏览器测试/包装/CI，也不将前端验收称为本轮已完成。
