@@ -79,3 +79,10 @@ asuka-nas -serve -config /absolute/path/config.json
 | 特殊篇 / 不支持编号或清单 / 字幕不明 | 人工诊断完整来源清单；本版不支持强制入库，不循环点重试 |
 
 所有阻塞都保留源文件、不覆盖目标；做种期限独立，不因为目录候选、规则修改或通知失败而延长。
+
+
+## 单任务批量整理（后端候选，前端独立集成中）
+
+本机`POST /api/batch-preview`仅返回全清单人工方案；`batch-confirm`绑定job/plan版本、digest与全清单指纹，在同一事务保存批准与不可变对比记录。逐行明确集号、有界offset提取、显式确认表序后连续编号；不推断现实季号。`GET /api/comparisons?id=...&after=...`按job分页查看原始意图及实际文件状态。未开始方案可修改，已开始只恢复原冻结方案。预览取消不生成样本，全部Emby确认才整包完成。原下载文件不rename/删除/覆盖，做种独立。
+
+UI草稿/DTO交接见BATCH_FRONTEND_HANDOFF.md，具体限额、隐私及后续人审契约见BATCH_AGENT_CONTRACT.md。agent学习和候选回传未实现；任何高置信度均不能绕过人工终审。

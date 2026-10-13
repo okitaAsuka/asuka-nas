@@ -31,3 +31,8 @@ N3/N4 内部契约：Plan 新增 collection、decisions（逐视频决定）、m
 复验修复：schema v5 / parser v3；新增固定阻塞码与事件 legacy_evidence_unresolved。legacy_plan_evidence 仅补充可证明的旧计划语义，不改变对外 Plan digest。该阻塞下做种截止仍执行，导入与媒体确认暂停；已导入历史状态保持，不能当作当前 ready。
 
 NamingRule 新增可选 identity_normalization_version：新建写1，历史缺省0只读兼容，未知版本以 rule_normalization_unresolved 阻塞。字段不写回历史规则，也不改变历史Plan摘要；schema保持5。
+
+
+## 本机批量组织与对比记录（schema6）
+
+此处仅本机管理CSRF入口，与远程只读事件服务不同：`POST /api/batch-preview`、`POST /api/batch-confirm`、`GET /api/comparisons?id={jobID}&after={planVersion}`。完整JSON、固定错误码与版本绑定见BATCH_FRONTEND_HANDOFF.md；本轮未增加远程写入口、模型或agent消费。不可变意图和执行投影、限额、未知语义及未来待审规则契约见BATCH_AGENT_CONTRACT.md。

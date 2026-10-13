@@ -1,11 +1,13 @@
 # 当前状态 / 2026-10-13
 
-当前功能以本节和代码为准。后文是历史阶段记录，其中“未实现”只描述当时。NAS领域schema5/控制扩展v2/parser v4保持不变；远端开发分支已可推送并运行CI；仍未部署或做真实服务验收。
+当前功能以本节和代码为准。后文是历史阶段记录，其中“未实现”只描述当时。NAS领域schema6/控制扩展v2/parser v4；schema6只新增不可变人工对比记录；远端开发分支已可推送并运行CI；仍未部署或做真实服务验收。
 
 | 能力 | 当前状态 |
 | --- | --- |
 | RSS magnet/enclosure → qB 5.x 下载/去重 | 已实现，fake HTTP验收 |
 | 本机管理页保存/预览/启用人工规则、下一集自动映射 | 已实现；篇章季号/目录由人明确选择 |
+| 单任务批量人工整理与不可变对比记录 | 后端已实现；前端草稿交独立owner，最终集成与CI/UI验收待父任务协调 |
+| agent从人工对比归纳待审规则 | 尚未实现；契约见BATCH_AGENT_CONTRACT.md，人工终审前永不激活 |
 | 用户选择目录/NFO → 可解释候选 → 人工规则草稿 | 已实现；只读有界扫描，预览/保存重查，不猜篇章季号，无模型学习 |
 | 明确有界总集数/相对编号、合集逐文件冻结/恢复、硬链接 | 已实现；不猜现实季度，不删源 |
 | Emby refresh与独立逐视频发现 | 已实现；全部视频确认后才discovered/ready |
@@ -16,7 +18,9 @@
 
 配置、启动与fake跨仓入口见 [NOTIFICATIONS.md](NOTIFICATIONS.md)。通知只包含任务标识和固定阶段说明，不公开标题/URL/源路径/凭据/原始异常。at-least-once；Discord nonce仅短窗口去重，不能保证端到端exactly-once。
 
-本轮候选里程碑与自审证据见 [MAPPING_EVIDENCE.md](MAPPING_EVIDENCE.md)；通知实现记录见 [NOTIFICATIONS_REVIEW.md](NOTIFICATIONS_REVIEW.md)。
+批量方案后端契约见 [BATCH_AGENT_CONTRACT.md](BATCH_AGENT_CONTRACT.md)，前端交接见 [BATCH_FRONTEND_HANDOFF.md](BATCH_FRONTEND_HANDOFF.md)，父审证据见 [BATCH_EVIDENCE.md](BATCH_EVIDENCE.md)。
+
+已有候选里程碑与自审证据见 [MAPPING_EVIDENCE.md](MAPPING_EVIDENCE.md)；通知实现记录见 [NOTIFICATIONS_REVIEW.md](NOTIFICATIONS_REVIEW.md)。
 
 ## 历史阶段记录（不作为当前功能矩阵）
 

@@ -203,6 +203,9 @@ func (e *Engine) batchConfirm(ctx context.Context, id string, version, planVersi
 	}
 	// 网络重试/双击只接受已持久的同一意图，不因执行推进再次造样本。
 	if j.Plan != nil && j.Plan.Batch != nil && j.Plan.Approved && j.Plan.Version == planVersion && PlanDigest(j.Plan) == digest {
+		if version != planVersion-1 {
+			return errors.New("stale_version")
+		}
 		if digestStringJSON(b) != digestStringJSON(*j.Plan.Batch) {
 			return errors.New("stale_plan")
 		}

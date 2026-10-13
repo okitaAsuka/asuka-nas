@@ -70,6 +70,9 @@ func TestBatchWholePlanIntentAndCompletion(t *testing.T) {
 	}
 	raw, _ := json.Marshal(records[0].Intent)
 	batchConfirm(t, f, b, v) // 原job version重放：不制造第二记录。
+	if err := f.engine.BatchConfirm(ctx, f.job().ID, 0, v.Plan.Version, v.Digest, b); err == nil || err.Error() != "stale_version" {
+		t.Fatal("idempotent replay lost original job-version binding", err)
+	}
 	if len(comparisons(t, f)) != 1 {
 		t.Fatal("duplicate confirmation")
 	}
@@ -540,5 +543,52 @@ func TestBatchLegacyOpaqueSingleRecordNeverInventsSemantics(t *testing.T) {
 	records := comparisons(t, f)
 	if len(records) != 1 || records[0].Intent.Changes[0].SemanticsResolved || records[0].Intent.Changes[0].Season != 0 || records[0].Intent.Changes[0].Episode != 0 {
 		t.Fatal("opaque target fabricated semantics", records)
+	}
+}
+
+type batchPartialMedia struct {
+	Media
+	firstTarget string
+	all         bool
+}
+
+func (m *batchPartialMedia) Discover(ctx context.Context, target string) (bool, error) {
+	return m.all || target == m.firstTarget, nil
+}
+func TestBatchPartialDiscoveryAndFinalTransactionRollback(t *testing.T) {
+	ctx := context.Background()
+	f, b := batchFixture(t)
+	v := batchPreview(t, f, b)
+	batchConfirm(t, f, b, v)
+	media := &batchPartialMedia{Media: f.engine.Emby, firstTarget: filepath.Join(f.library, v.Plan.Files[0].Target)}
+	f.engine.Emby = media
+	f.tick(1001)
+	views := comparisons(t, f)
+	found := 0
+	for _, file := range views[0].Files {
+		if file.Video && file.Discovered {
+			found++
+		}
+	}
+	if found != 1 || views[0].Status != "awaiting_discovery" || f.job().Discovery == "confirmed" {
+		t.Fatal("partial Emby claimed ready", found, views)
+	}
+	if _, err := f.store.db.Exec("CREATE TRIGGER fail_final BEFORE INSERT ON events WHEN NEW.kind='discovered' BEGIN SELECT RAISE(ABORT,'fixture final failure'); END;"); err != nil {
+		t.Fatal(err)
+	}
+	media.all = true
+	if err := f.engine.Tick(ctx, time.Unix(1002, 0)); err == nil {
+		t.Fatal("final failure ignored")
+	}
+	if comparisons(t, f)[0].Status != "awaiting_discovery" || f.job().Discovery == "confirmed" {
+		t.Fatal("uncommitted final reported successful")
+	}
+	if _, err := f.store.db.Exec("DROP TRIGGER fail_final"); err != nil {
+		t.Fatal(err)
+	}
+	f.reopen()
+	f.tick(1003)
+	if len(comparisons(t, f)) != 1 || comparisons(t, f)[0].Status != "complete" {
+		t.Fatal("final commit not recovered")
 	}
 }
