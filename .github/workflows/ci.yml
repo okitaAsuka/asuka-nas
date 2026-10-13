@@ -27,4 +27,5 @@ jobs:
           path: |
             /tmp/nas-ui.log
             /tmp/asuka-naming-*.png
+            /tmp/asuka-workflow-*.png
           retention-days: 14

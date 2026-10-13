@@ -217,6 +217,9 @@ func (m *Management) api(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	s := m.Daemon.Engine.Store
 	path := strings.TrimPrefix(r.URL.Path, "/api/")
+	if m.workflowAPI(w, r, path) {
+		return
+	}
 	if m.namingAPI(w, r, path) {
 		return
 	}
@@ -238,7 +241,7 @@ func (m *Management) api(w http.ResponseWriter, r *http.Request) {
 			capability := func(enabled bool) map[string]any {
 				return map[string]any{"supported": true, "configured_enabled": enabled, "runtime": "unknown"}
 			}
-			apiJSON(w, map[string]any{"mode": "local_single_user", "database": "ok", "gateway": "unknown", "discord": "unknown", "metadata": "not_supported", "model": "unknown", "learning": "human_reviewed_rule_proposals", "capabilities": map[string]any{
+			apiJSON(w, map[string]any{"mode": "local_single_user", "database": "ok", "gateway": "unknown", "discord": "unknown", "metadata": "not_supported", "model": "unknown", "learning": "human_reviewed_rule_proposals", "integration_config": map[string]any{"rss_profiles": len(m.Daemon.Config.Subscriptions), "qb_url": m.Daemon.Config.QBURL != "", "emby_url": m.Daemon.Config.EmbyURL != ""}, "capabilities": map[string]any{
 				"events":           capability(m.Daemon.Config.Events.Enabled),
 				"learning":         capability(m.Daemon.Config.Learning.Enabled),
 				"automatic_naming": capability(m.Daemon.Config.Learning.AutomaticNaming),
@@ -261,51 +264,6 @@ func (m *Management) api(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			apiJSON(w, map[string]any{"items": v, "profiles": profiles, "next": next, "total": total})
-			return
-		case "jobs":
-			after := r.URL.Query().Get("after")
-			rows, err := s.db.QueryContext(ctx, "SELECT id FROM jobs WHERE id>? ORDER BY id LIMIT 101", after)
-			if err != nil {
-				apiError(w, 500, "store_failed")
-				return
-			}
-			ids := []string{}
-			for rows.Next() {
-				var id string
-				if err = rows.Scan(&id); err != nil {
-					break
-				}
-				ids = append(ids, id)
-			}
-			if err == nil {
-				err = rows.Err()
-			}
-			rows.Close()
-			if err != nil {
-				apiError(w, 500, "store_failed")
-				return
-			}
-			next := ""
-			if len(ids) > 100 {
-				ids = ids[:100]
-				next = ids[99]
-			}
-			out := []jobDetail{}
-			for _, id := range ids {
-				v, e := m.detail(ctx, id)
-				if e != nil {
-					apiError(w, 500, "store_failed")
-					return
-				}
-				v.Job.Sources = nil
-				v.Contexts = nil
-				v.BatchHints = nil
-				v.Job.Plan = nil
-				v.Files = nil
-				v.Digest = ""
-				out = append(out, v)
-			}
-			apiJSON(w, map[string]any{"items": out, "next": next})
 			return
 		case "comparisons":
 			after, err := strconv.Atoi(r.URL.Query().Get("after"))

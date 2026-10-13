@@ -15,7 +15,7 @@ with sync_playwright() as p:
     exceptions=[]; page.on('pageerror', lambda e:exceptions.append(str(e)))
     writes=[]; page.on('request', lambda r:writes.append(r.url.rsplit('/',1)[-1]) if r.method=='POST' else None)
     def open_case(case):
-        page.goto(urls[case]); page.get_by_role('button',name='查看详情').click()
+        page.goto(urls[case] + "#jobs"); page.get_by_role('button',name='查看详情').click()
         expect(page.locator('[data-naming=true]')).to_be_visible()
     def hints(directory='Example', display='Example', season='2'):
         for name,value in [('naming_directory',directory),('naming_display_name',display),('naming_season',season)]:

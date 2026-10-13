@@ -17,7 +17,7 @@ with sync_playwright() as p:
     page = browser.new_page(viewport={'width': 1440, 'height': 1050})
     exceptions = []
     page.on('pageerror', lambda e: exceptions.append(str(e)))
-    page.goto(base)
+    page.goto(base + "#jobs")
     page.get_by_role('button', name='查看详情').click()
     page.get_by_role('button', name='补充可复用映射规则').click()
     expect(page.locator('[name=season]')).to_have_value('')
@@ -68,7 +68,7 @@ with sync_playwright() as p:
     assert len(saves) == 1, saves
     fixture('tick')
     page.get_by_role('button', name='任务与入库', exact=True).click()
-    expect(page.locator('tbody').get_by_text('待人工确认', exact=True)).to_be_visible()
+    expect(page.locator('.task-states').get_by_text('待人工确认', exact=True)).to_be_visible()
     page.get_by_role('button', name='命名规则', exact=True).click()
     page.get_by_role('button', name='启用此版本').click()
     expect(page.get_by_role('button', name='停用', exact=True)).to_be_visible()

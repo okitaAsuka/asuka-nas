@@ -28,7 +28,8 @@ asuka-nas -serve -config /absolute/path/config.json
 | GET /api/health | 数据库、能力支持/配置、未知运行状态；不做外部探测 |
 | GET/POST /api/subscriptions | 来源引用列表；新增(version=0)或CAS编辑 |
 | POST /api/source-retry | id+version，解除来源退避并审计 |
-| GET /api/jobs?after=id | 每页100；next为空则结束 |
+| GET /api/workflow | 有界只读状态计数及明确scope；不探测上游 |
+| GET /api/jobs?after=id&filter=all&q=... | 按ID分页100；安全摘要/ID字面搜索与阶段筛选；scope最多覆盖前10000个任务，next为空则结束 |
 | GET /api/jobs/id | 显式公开DTO，无magnet/URL/GUID/凭据 |
 | POST /api/job-action | id+version+action；retry/replan/preview/confirm |
 | GET/POST /api/rules | 查询版本/追加草稿 |
@@ -50,7 +51,7 @@ asuka-nas -serve -config /absolute/path/config.json
 
 `make verify` 做 Go1.26.9 格式/vet/race/build。`make verify-ui` 需要 Python3.12、tests/requirements.txt 与 Chromium（CHROMIUM_PATH可指定；否则使用系统或Playwright浏览器），实际启动本地fake HTTP服务、临时SQLite/文件和Chromium。只验证本地产品链；不访问真实RSS/qB/Emby、不调用模型、不发送Discord。
 
-浏览器测试覆盖订阅添加→RSS→qB→指纹确认→实际硬链接→Emby发现→事件；规则启用后下一集自动；SQLite重开后的合集部分入库恢复；重复点击、XSS、导航晚到响应、错误恢复、手机宽度。截图仅临时内部检查，不随Library源码包交付。
+浏览器测试覆盖订阅添加→RSS→qB→指纹确认→实际硬链接→Emby发现→事件；规则启用后下一集自动；SQLite重开后的合集部分入库恢复；重复点击、XSS、导航晚到响应、错误恢复、手机宽度。工作台及命名截图随 CI artifact 交付，具体范围与文件名见 FRONTEND_WORKFLOW_EVIDENCE.md。
 
 ## 定向修复：订阅完整性与预览归属
 
@@ -92,3 +93,10 @@ asuka-nas -serve -config /absolute/path/config.json
 learning.automatic_naming默认false。显式开启后支持的待确认任务自动入队；界面区分automatic/human入口，缺目录、显示名或明确季号列unresolved。人可直接填BatchOrganization，经naming-preview/confirm批准，无需再次调用模型；也可明确补facts重试，最多3份请求。做种停止不使建议过期；若发生在preview后，重新完整preview即可复用结果。真正命名语义变化才stale。
 
 拒绝、过期或离线后可直接普通batch-preview/confirm，不需要新模型请求。模型结果与拒绝状态不被人工fallback改写；所有辅助历史保留model_assisted_human来源并排除纯人工学习。已批准任务可显式复用已确认目录/名称/季号为规则草稿，别名/订阅/有限范围需人工核对，再独立预览/保存/启用。
+
+
+## 工作台入口
+
+默认日常总览；任务的搜索、阶段、游标和详情写入只读 URL fragment，刷新、浏览器历史及返回任务保留上下文。全部写操作仍走原CSRF/CAS和完整预览/批准路径。GET只读工作台最多投影10000任务，页面明确全量或有限范围；不能把第一页当全库。待审规则计数为持久pending版本，详情仍需重新核验。
+
+接入页只显示档案数量、服务地址是否提供与未知连接状态；不回传配置URL/路径或秘密，不触发外部探测。RSS/服务URL在实际config.json，凭据通过既有环境变量注入。公开片段和部署步骤仅作手工说明，没有URL/凭据保存接口。完整证据见 [FRONTEND_WORKFLOW_EVIDENCE.md](FRONTEND_WORKFLOW_EVIDENCE.md)。

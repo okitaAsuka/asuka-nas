@@ -10,7 +10,7 @@ with sync_playwright() as p:
     browser=p.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH') or shutil.which('chromium'),args=['--no-sandbox'])
     page=browser.new_page(viewport={'width':1440,'height':1050})
     exceptions=[];page.on('pageerror',lambda e:exceptions.append(str(e)))
-    page.goto(base);expect(page.get_by_role('heading',name='任务进度')).to_be_visible()
+    page.goto(base + "#jobs");expect(page.get_by_role('heading',name='任务进度')).to_be_visible()
     page.get_by_role('button',name='订阅管理',exact=True).click()
     expect(page.get_by_role('heading',name='订阅来源')).to_be_visible()
     page.get_by_role('button',name='停用',exact=True).click()
@@ -79,7 +79,7 @@ with sync_playwright() as p:
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'mobile overflow'
     page.screenshot(path='/tmp/asuka-web-mobile.png',full_page=True)
     # Reopened SQLite containing six successful links: retry through real UI.
-    page.set_viewport_size({'width':1440,'height':1050});page.goto(pack)
+    page.set_viewport_size({'width':1440,'height':1050});page.goto(pack + "#jobs")
     page.get_by_role('button',name='查看详情').click()
     expect(page.get_by_text('阻塞 / 错误：permission_denied',exact=True)).to_be_visible()
     expect(page.get_by_role('button',name='重新规划')).to_be_disabled()

@@ -50,7 +50,7 @@ try:
     with sync_playwright() as p:
         browser=p.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH') or shutil.which('chromium'),args=['--no-sandbox'])
         page=browser.new_page(viewport={'width':1440,'height':1100});errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
-        page.goto(f'http://127.0.0.1:{server.server_port}');page.get_by_role('button',name='查看详情').click()
+        page.goto(f'http://127.0.0.1:{server.server_port}#jobs');page.get_by_role('button',name='查看详情').click()
         expect(page.locator('[name=naming_season]')).to_have_value('')
         for name,value in [('naming_directory','Human library'),('naming_display_name','Human Example'),('naming_season','4')]:page.locator(f'[name={name}]').fill(value)
         page.get_by_role('button',name='请求命名建议').evaluate('(b)=>{b.click();b.click()}')

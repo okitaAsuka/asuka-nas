@@ -2,7 +2,11 @@ const $ = (s) => document.querySelector(s),
   view = $("#view"),
   message = $("#message");
 let csrf = "",
-  tab = "jobs",
+  tab = "overview",
+  jobFilter = "all",
+  jobQuery = "",
+  detailSection = "",
+  detailReturn = "jobs",
   generation = 0,
   busy = false,
   detailID = "",
@@ -12,6 +16,7 @@ let csrf = "",
   ruleClues = null,
   activeLibraryScan = null;
 const names = {
+  overview: "日常总览",
   jobs: "任务与入库",
   subscriptions: "订阅管理",
   rules: "命名规则",
@@ -226,11 +231,14 @@ async function load(clear = true) {
   const g = ++generation;
   if (clear) {
     message.textContent = "";
+    message.className = "";
     view.replaceChildren(el("p", "正在加载…", "empty"));
   }
   view.setAttribute("aria-busy", "true");
   try {
+    if (!csrf) csrf = (await api("session")).csrf;
     const content = await {
+      overview: overviewView,
       jobs: jobsView,
       subscriptions: subscriptionsView,
       rules: rulesView,
@@ -240,125 +248,164 @@ async function load(clear = true) {
     if (g !== generation) return;
     view.replaceChildren(content);
     view.querySelector("[data-review-heading]")?.focus();
+    if (detailSection) jumpTo(detailSection);
     setBusy(busy);
   } catch (e) {
     if (g === generation) {
-      view.replaceChildren(
-        el("p", "未能加载。请点击右上角刷新状态。", "empty"),
-      );
+      const recovery = panel("暂时无法读取");
+      recovery.append(el("p", "数据尚未读取成功。可重试；当前页面入口会保留。", "muted"), button("重新加载", () => load(), true));
+      view.replaceChildren(recovery);
       fail(e);
     }
   } finally {
     if (g === generation) view.setAttribute("aria-busy", "false");
   }
 }
-function navigate(next) {
-  tab = next;
-  detailID = "";
-  cursor = "";
-  subscriptionCursor = "";
-  proposalSelection = null;
+function syncNavigation() {
   $("#heading").textContent = names[tab];
-  document
-    .querySelectorAll("[data-tab]")
-    .forEach((b) => b.classList.toggle("selected", b.dataset.tab === tab));
-  load();
+  document.querySelectorAll("[data-tab]").forEach((b) => {
+    b.classList.toggle("selected", b.dataset.tab === tab);
+    if (b.dataset.tab === tab) b.setAttribute("aria-current", "page");
+    else b.removeAttribute("aria-current");
+  });
 }
-document
-  .querySelectorAll("[data-tab]")
-  .forEach((b) => (b.onclick = () => navigate(b.dataset.tab)));
+function saveRoute() {
+  const params = new URLSearchParams();
+  if (tab === "jobs") {
+    if (detailID) params.set("id", detailID);
+    if (detailSection) params.set("section", detailSection);
+    if (cursor) params.set("after", cursor);
+    if (jobFilter !== "all") params.set("filter", jobFilter);
+    if (jobQuery) params.set("q", jobQuery);
+  }
+  const route = "#" + tab + (params.size ? "?" + params : "");
+  if (location.hash !== route) history.pushState(null, "", route);
+}
+function readRoute() {
+  const [name, query] = location.hash.slice(1).split("?");
+  tab = names[name] ? name : "overview";
+  const params = new URLSearchParams(query || "");
+  detailID = tab === "jobs" ? params.get("id") || "" : "";
+  cursor = params.get("after") || "";
+  jobFilter = ["all", "downloading", "naming", "emby", "failed", "ready"].includes(params.get("filter")) ? params.get("filter") : "all";
+  jobQuery = params.get("q") || "";
+  detailSection = params.get("section") || "";
+  detailReturn = "jobs";
+  proposalSelection = null;
+  syncNavigation();
+}
+function navigate(next, filter = "all") {
+  tab = next; detailID = ""; detailSection = ""; cursor = "";
+  jobFilter = filter; jobQuery = "";
+  subscriptionCursor = ""; proposalSelection = null;
+  syncNavigation(); saveRoute(); load();
+}
+function openJob(id, section = "") {
+  detailReturn = tab === "overview" ? "overview" : "jobs";
+  tab = "jobs"; detailID = id; detailSection = section;
+  syncNavigation(); saveRoute(); load();
+}
+function jumpTo(id) {
+  const target = document.getElementById("job-" + id);
+  if (!target) return;
+  target.tabIndex = -1;
+  target.focus({ preventScroll: true });
+  target.scrollIntoView({ block: "start", behavior: "instant" });
+}
+window.addEventListener("popstate", () => { readRoute(); load(); });
+document.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => navigate(b.dataset.tab)));
 $("#refresh").onclick = () => load();
+function scopeText(scope) {
+  if (!scope) return "统计范围由接口返回；当前未提供全库计数。";
+  return scope.truncated
+    ? `全库 ${scope.total} 个任务；工作台仅覆盖按 ID 排序的前 ${scope.scanned} 个（上限 ${scope.limit}），搜索与筛选也限此范围。`
+    : `覆盖全库 ${scope.total} 个任务；只读状态快照，刷新后重新读取。`;
+}
+const workflowFilters = [
+  ["all", "全部任务"], ["downloading", "下载中 / 等待下载"],
+  ["naming", "待命名 / 待补事实"], ["emby", "已入库 · Emby 未发现"],
+  ["failed", "失败 / 待恢复"], ["ready", "媒体已就绪"],
+];
+async function overviewView() {
+  const data = await api("workflow"), root = el("div");
+  const intro = panel("把今天要处理的事放在一起");
+  intro.classList.add("workflow-hero");
+  intro.append(el("p", "从下载到媒体库，每一步都有依据。", "hero-line"),
+    el("p", "先补充不明确的命名，再审核可复用规则；入库后继续核对 Emby 是否真正发现。", "muted"),
+    el("p", scopeText(data.scope), "scope-note"));
+  root.append(intro);
+  const metrics = el("div", undefined, "workflow-metrics");
+  const steps = [
+    ["downloading", "下载中 / 等待下载", "查看下载状态；速度和进度未提供"],
+    ["naming", "待命名 / 待补事实", "补充明确季号，或直接人工整理"],
+    ["rules", "待审规则版本", "核对原始人工依据，再试算与终审"],
+    ["emby", "入库后待发现", "硬链接成功后，继续核对 Emby"],
+    ["failed", "失败 / 待恢复", "先核对错误，恢复原冻结方案"],
+  ];
+  steps.forEach(([key, label, hint], i) => {
+    const n = button("", () => navigate(key === "rules" ? "rules" : "jobs", key === "rules" ? "all" : key));
+    n.className = "workflow-metric"; n.dataset.workflow = key;
+    n.append(el("span", "0" + (i + 1), "step-index"), el("strong", data.counts[key]), el("span", label, "metric-label"), el("small", hint), el("span", "查看 →", "metric-link"));
+    metrics.append(n);
+  });
+  root.append(metrics, el("p", "任务分类可能重叠：例如待命名任务也可能有错误。待审规则为全库持久 pending 版本数，进入详情后重新核验是否过期。", "muted"));
+  const next = panel(data.counts.all ? "继续处理" : "从第一条订阅开始");
+  next.append(el("p", data.counts.all ? `已发现 ${data.counts.ready} 个媒体就绪任务。选择上方待办，进入任务核对依据。` : "当前没有任务。先在部署配置中添加来源档案，再在订阅页选择来源和启用抓取。", "muted"));
+  const actions = el("div", undefined, "actions");
+  actions.append(button("打开全部任务", () => navigate("jobs"), true), button("管理订阅", () => navigate("subscriptions")), button("查看接入步骤", () => navigate("health")));
+  next.append(actions); root.append(next);
+  return root;
+}
 async function jobsView() {
   if (detailID) return jobView(detailID);
-  const data = await api("jobs?after=" + encodeURIComponent(cursor)),
-    items = data.items;
-  const root = el("div"),
-    metrics = el("div", undefined, "metrics");
-  [
-    ["本页任务", items.length],
-    [
-      "待人工确认",
-      items.filter(
-        (v) => v.job.block_reason || v.job.import === "needs_confirmation",
-      ).length,
-    ],
-    ["Emby 已就绪", items.filter((v) => v.ready).length],
-  ].forEach(([name, n]) => {
-    const m = el("div", undefined, "metric");
-    m.append(el("strong", n), el("span", name));
-    metrics.append(m);
-  });
-  root.append(metrics);
-  const p = panel("任务进度"),
-    filters = el("div", undefined, "inline"),
-    filter = select(filters, "本页筛选", "filter", [
-      ["all", "全部"],
-      ["blocked", "待确认 / 异常"],
-      ["ready", "媒体已就绪"],
-      ["active", "处理中"],
-    ]);
-  p.append(filters);
-  const { wrap, body } = table([
-    "任务 / 来源",
-    "下载",
-    "入库",
-    "Emby",
-    "做种",
-    "操作",
-  ]);
-  function render() {
-    body.replaceChildren();
-    const selected = items.filter(
-      (v) =>
-        filter.value === "all" ||
-        (filter.value === "blocked" &&
-          (v.job.block_reason || v.job.error_code)) ||
-        (filter.value === "ready" && v.ready) ||
-        (filter.value === "active" && !v.ready),
-    );
-    for (const v of selected) {
-      const j = v.job;
-      row(body, [
-        el("span", j.id.slice(0, 12), "mono"),
-        badge(j.download),
-        badge(j.import, j.block_reason ? "warn" : ""),
-        badge(v.ready ? "已就绪" : j.discovery, v.ready ? "ok" : ""),
-        el(
-          "span",
-          (states[j.seed] || j.seed) +
-            " · " +
-            (j.stop_at ? time(j.stop_at) : "待完成计时"),
-        ),
-        button("查看详情", () => {
-          detailID = j.id;
-          load();
-        }),
-      ]);
-    }
-    if (!selected.length)
-      row(body, ["暂无任务。启用订阅后等待轮询。", "", "", "", "", ""]);
+  const data = await api("jobs?" + new URLSearchParams({after: cursor, filter: jobFilter, q: jobQuery}));
+  const root = el("div"), p = panel("任务进度");
+  p.append(el("p", scopeText(data.scope), "scope-note"));
+  const filters = el("form", undefined, "task-filters");
+  const search = field(filters, "搜索任务名 / 来源摘要 / ID", "job_search", jobQuery, "search");
+  search.maxLength = 256;
+  search.placeholder = "例如：作品名、S01E02";
+  const filter = select(filters, "处理阶段", "job_filter", workflowFilters, jobFilter);
+  const apply = button("应用筛选", () => {} , true); apply.type = "submit";
+  filters.append(apply);
+  function applyFilters() {
+    jobQuery = search.value.trim(); jobFilter = filter.value; cursor = "";
+    saveRoute(); load();
   }
-  filter.onchange = render;
-  render();
-  p.append(wrap);
+  filters.onsubmit = (e) => { e.preventDefault(); applyFilters(); };
+  filter.onchange = applyFilters;
+  p.append(filters, el("p", `本页 ${data.items.length} 条${data.matched === undefined ? "" : ` · 范围内匹配 ${data.matched} 条`} · 按任务 ID 排序，每页最多 100 条`, "muted"));
+  const list = el("div", undefined, "task-list");
+  data.items.forEach((v) => {
+    const j = v.job, card = el("article", undefined, "task-card"), title = el("div", undefined, "task-identity");
+    card.dataset.jobId = j.id;
+    title.append(el("h3", v.summary || "名称未知"), el("p", `${v.summary_kind || "尚无来源摘要"} · ${v.episode || "季集未知 · 需明确依据"}`, "muted"), el("small", j.id, "mono"));
+    const state = el("div", undefined, "task-states");
+    [["下载", j.download], ["入库", j.import], ["Emby", v.ready ? "已就绪" : j.discovery], ["做种", j.seed]].forEach(([label, value]) => {
+      const cell = el("div"); cell.append(el("span", label, "state-label"), badge(value, v.ready ? "ok" : j.block_reason && label === "入库" ? "warn" : "")); state.append(cell);
+    });
+    const actions = el("div", undefined, "task-actions");
+    actions.append(el("p", v.next_step || "查看证据与当前方案", "next-step"), button("查看详情", () => openJob(j.id), true));
+    if (workflowTaskNeedsNaming(j)) actions.append(button("命名 / 人工整理", () => openJob(j.id, "naming")));
+    if (j.error_code) actions.append(button("安全恢复入口", () => openJob(j.id, "recovery")));
+    card.append(title, state, actions);
+    if (j.block_reason || j.error_code) card.append(el("p", [j.block_reason, j.error_code].filter(Boolean).join(" · "), "task-error mono"));
+    list.append(card);
+  });
+  if (!data.items.length) {
+    const empty = el("div", undefined, "empty");
+    empty.append(el("h3", jobQuery || jobFilter !== "all" || cursor ? "没有符合条件的任务" : "暂无任务"), el("p", jobQuery || jobFilter !== "all" || cursor ? "调整搜索与阶段，或返回第一页重新读取。" : "启用订阅后等待轮询；来源配置与连接状态可在接入页核对。"));
+    empty.append(button("清除筛选并返回首页", () => { cursor = ""; jobQuery = ""; jobFilter = "all"; saveRoute(); load(); }), button("管理订阅", () => navigate("subscriptions")));
+    list.append(empty);
+  }
+  p.append(list);
   const actions = el("div", undefined, "actions");
-  if (cursor)
-    actions.append(
-      button("返回首页", () => {
-        cursor = "";
-        load();
-      }),
-    );
-  if (data.next)
-    actions.append(
-      button("下一页", () => {
-        cursor = data.next;
-        load();
-      }),
-    );
-  p.append(actions);
-  root.append(p);
-  return root;
+  if (cursor) actions.append(button("返回首页", () => { cursor = ""; saveRoute(); load(); }));
+  if (data.next) actions.append(button("下一页", () => { cursor = data.next; saveRoute(); load(); }));
+  p.append(actions); root.append(p); return root;
+}
+function workflowTaskNeedsNaming(j) {
+  return j.download === "completed" && j.import !== "imported" && (j.import === "needs_confirmation" || j.block_reason);
 }
 async function jobView(id) {
   const v = await api("jobs/" + encodeURIComponent(id)),
@@ -366,12 +413,16 @@ async function jobView(id) {
     root = el("div");
   root.append(
     button("← 返回任务", () => {
-      detailID = "";
-      load();
+      detailID = ""; detailSection = ""; tab = detailReturn;
+      syncNavigation(); saveRoute(); load();
     }),
   );
   const p = panel("任务详情");
-  p.append(el("p", j.id, "mono"));
+  p.id = "job-recovery";
+  p.append(el("p", j.sources?.[0] || v.contexts?.[0]?.title || "名称未知", "detail-name"), el("p", j.id, "mono"));
+  const jumps = el("div", undefined, "actions detail-jumps");
+  [["naming", "命名 / 人工整理"], ["evidence", "来源证据"], ["plan", "文件方案"], ["comparison", "对比与审计"], ["recovery", "安全恢复"]].forEach(([id, label]) => jumps.append(button(label, () => jumpTo(id))));
+  root.append(jumps);
   const summary = el("dl", undefined, "summary");
   [
     ["下载", states[j.download] || j.download],
@@ -440,15 +491,19 @@ async function jobView(id) {
     ),
   );
   root.append(p);
-  if (j.download === "completed" && !permanent) root.append(await namingPanel(j, v));
+  if (j.download === "completed" && !permanent) {
+    const naming = await namingPanel(j, v); naming.id = "job-naming"; root.append(naming);
+  }
   if (v.contexts?.length) {
     const evidence = panel("来源证据（最多 100 条）");
+    evidence.id = "job-evidence";
     v.contexts.forEach((c) => {
       evidence.append(el("h3", c.subscription), el("p", c.title, "mono"));
     });
     root.append(evidence);
   }
   const plan = panel("文件组织方案");
+  plan.id = "job-plan";
   if (j.plan) {
     plan.append(
       el(
@@ -493,7 +548,7 @@ async function jobView(id) {
       el("p", "尚未生成可执行方案。可使用下方批量整理明确本次完整清单。", "muted"),
     );
   root.append(plan);
-  root.append(comparisonPanel(id));
+  const comparison = comparisonPanel(id); comparison.id = "job-comparison"; root.append(comparison);
   if (
     j.download === "completed" &&
     j.import !== "imported" &&
@@ -1769,7 +1824,7 @@ async function subscriptionsView() {
     }),
   );
   form.append(actions);
-  root.append(form);
+  root.append(form, setupGuide(data.profiles.length));
   return root;
 }
 async function allSubscriptions() {
@@ -2166,6 +2221,26 @@ async function eventsView() {
   root.append(s);
   return root;
 }
+function setupGuide(profileCount) {
+  const p = panel("接入步骤 · 配置文件管理");
+  p.classList.add("setup-guide");
+  p.append(el("p", `${profileCount} 个来源档案已配置。${profileCount ? "页面可选择来源引用、启停与重试抓取。" : "缺少 RSS 来源档案，当前不能保存新的启用订阅。"} RSS URL、服务地址与凭据需由部署者在本地配置；本页没有这些字段的保存接口。`, "notice"));
+  const steps = el("ol", undefined, "setup-steps");
+  [
+    ["准备离线包", "先解压离线包；极空间 GUI 导入 image.tar。config.template.json 是公开模板，复制为实际挂载的 config.json；GUI 的启动参数、挂载与回环访问仍需在 NAS 上核验。"],
+    ["填写来源与服务", "在实际 config.json 的 subscriptions 中填写唯一 id 和 RSS url；qb_url、emby_url 填部署者确认的服务地址。RSS token 只留在本地配置，不能粘贴到显示名称、规则或来源 ID。"],
+    ["提供秘密环境变量", "qB 登录使用 ASUKA_NAS_QB_USERNAME / ASUKA_NAS_QB_PASSWORD；Emby 使用 ASUKA_NAS_EMBY_TOKEN。credentials.env.template 提供变量名，实际值由运行环境注入，不在此页面读取或保存。"],
+    ["核对挂载再重启", "核对 downloads 与 library 不重叠且支持同文件系统硬链接；qB 下载路径与服务一致，Emby 媒体路径一致。配置校验只验证格式；重启后回到订阅页选择来源并启用，核对真实轮询与任务证据。"],
+  ].forEach(([title, text]) => { const li = el("li"); li.append(el("strong", title), el("p", text, "muted")); steps.append(li); });
+  p.append(steps);
+  const template = el("details"); template.append(el("summary", "查看无秘密的配置片段（需合入完整模板）"));
+  template.append(el("pre", JSON.stringify({subscriptions:[{id:"my_feed",url:"https://example.invalid/rss"}],qb_url:"http://127.0.0.1:8080",emby_url:"http://127.0.0.1:8096"}, null, 2)), el("p", "示例地址为占位内容；不要直接启动。页面不访问这些地址，也不回显已有 URL。", "muted"));
+  p.append(template);
+  const checks = el("details"); checks.append(el("summary", "部署检查清单"));
+  const list = el("ul");
+  ["关闭数据库后备份 SQLite；本版开发迁移未授权升级真实生产库。", "保持管理回环监听；本轮不改 LAN、鉴权、Caddy 或网络设置。", "核对 Linux openat2、非 root 用户权限、挂载路径与实际硬链接；不通过复制绕过跨设备。", "从一条测试订阅开始，逐项核对下载完成、命名预览、人工确认、硬链接及 Emby 真实 Path 发现。", "命名/学习/事件服务默认关闭；启用配置不证明 agent、模型或通知消费者在线。"].forEach((text) => list.append(el("li", text)));
+  checks.append(list); p.append(checks); return p;
+}
 async function healthView() {
   const health = await api("health"),
     p = panel("本地服务与接入边界");
@@ -2200,7 +2275,11 @@ async function healthView() {
       "muted",
     ),
   );
-  return p;
+  const config = health.integration_config || {};
+  const integration = table(["接入项", "配置已提供", "连接状态"]);
+  [["RSS 来源档案", config.rss_profiles === undefined ? "未知" : `${config.rss_profiles} 个（URL 隐藏）`], ["qB 服务地址", config.qb_url === true ? "已提供（地址隐藏）" : config.qb_url === false ? "缺失" : "未知"], ["Emby 服务地址", config.emby_url === true ? "已提供（地址隐藏）" : config.emby_url === false ? "缺失" : "未知"]].forEach(([name, value]) => row(integration.body, [name, value, "未知 · 未发起连接探测"]));
+  p.append(el("h3", "当前配置概况"), integration.wrap, el("p", "凭据是否有效只能由真实服务运行验证；数据库正常只证明本地数据库可读。", "muted"));
+  const root = el("div"); root.append(p, setupGuide(config.rss_profiles || 0)); return root;
 }
 // 候选审核复用安全DOM、单写门与快照门；浏览器只有人工管理身份。
 const proposalStates = {
@@ -3036,10 +3115,5 @@ async function proposalDetail() {
   return root;
 }
 
-try {
-  csrf = (await api("session")).csrf;
-  await load();
-} catch (e) {
-  fail(e);
-  view.replaceChildren(el("p", "无法建立本地会话，请重新加载页面。", "empty"));
-}
+readRoute();
+await load();
