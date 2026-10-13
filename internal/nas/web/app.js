@@ -2327,12 +2327,12 @@ function reviewPages(items, headers, render, title) {
   const prev = button("上一页" + title, () => {
       page--;
       update();
-      prev.focus();
+      (prev.disabled ? status : prev).focus();
     }),
     next = button("下一页" + title, () => {
       page++;
       update();
-      next.focus();
+      (next.disabled ? status : next).focus();
     });
   function update() {
     t.body.replaceChildren();
@@ -2344,6 +2344,7 @@ function reviewPages(items, headers, render, title) {
     next.disabled = (page + 1) * 20 >= items.length;
   }
   status.setAttribute("role", "status");
+  status.tabIndex = -1;
   actions.append(prev, status, next);
   node.append(t.wrap, actions);
   update();
@@ -2375,7 +2376,7 @@ function renderProposalTrial(trial) {
     p.append(
       el(
         "p",
-        `已验证集数 · ${scope.verified_episodes.length} 集：${scope.verified_episodes.join("、") || "无"}`,
+        `已验证集数 · ${(scope.verified_episodes || []).length} 集：${(scope.verified_episodes || []).join("、") || "无"}`,
         "scope-verified",
       ),
       el(
@@ -2385,7 +2386,7 @@ function renderProposalTrial(trial) {
       ),
       el(
         "p",
-        `人工声明但未验证 · ${scope.unverified_episodes.length} 集：${scope.unverified_episodes.join("、") || "无"}`,
+        `人工声明但未验证 · ${(scope.unverified_episodes || []).length} 集：${(scope.unverified_episodes || []).join("、") || "无"}`,
         "notice",
       ),
       el("p", "声明理由：" + scope.reason),
@@ -2551,7 +2552,7 @@ class ProposalReview {
           trial &&
           trial.conflicts === 0 &&
           this.approvalCheck.checked &&
-          (!trial.scope_review?.unverified_episodes.length ||
+          (!trial.scope_review?.unverified_episodes?.length ||
             this.scopeApproval.checked),
       ],
       [this.reject, pending && !dirty && this.rejectionCheck.checked],
@@ -2588,7 +2589,7 @@ class ProposalReview {
       (!reviewed ||
         reviewed.conflicts ||
         !this.approvalCheck.checked ||
-        (reviewed.scope_review?.unverified_episodes.length &&
+        (reviewed.scope_review?.unverified_episodes?.length &&
           !this.scopeApproval.checked))
     ) {
       this.invalidate(
@@ -2626,7 +2627,7 @@ class ProposalReview {
         this.gate.accept(ticket, request, result);
         this.output.replaceChildren(renderProposalTrial(result));
         this.scopeApprovalLabel.hidden =
-          !result.scope_review?.unverified_episodes.length;
+          !result.scope_review?.unverified_episodes?.length;
         this.status.className = "muted batch-status";
         this.status.textContent = result.conflicts
           ? "试算存在冲突；批准已锁定。请核对并修正。"

@@ -541,3 +541,5 @@ summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
     order: -1;
   }
 }
+
+.proposal-sample p { overflow-wrap: anywhere; }

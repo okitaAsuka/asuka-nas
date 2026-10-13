@@ -57,12 +57,13 @@ func TestRuleProposalBrowserLoop(t *testing.T) {
 			t.Fatal(err, items)
 		}
 		p := items[0]
+		m, web := managementFixture(t, f)
 		if name == "pages" {
 			for i := 0; i < 22; i++ {
 				modeled.Explanation = fmt.Sprintf("人工审核版本%d", i)
-				p, err = f.store.ReviseProposal(ctx, p.ID, p.Revision, p.Version, modeled)
-				if err != nil {
-					t.Fatal(err)
+				status, body := postManagement(t, m, web, "proposal-revise", map[string]any{"id": p.ID, "revision": p.Revision, "version": p.Version, "input": modeled})
+				if status != 200 || json.Unmarshal(body, &p) != nil {
+					t.Fatal("revision fixture", status, string(body))
 				}
 			}
 		}
@@ -78,12 +79,17 @@ func TestRuleProposalBrowserLoop(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		_, web := managementFixture(t, f)
 		scenarios[name] = &scenario{f, p, in, web.URL}
 	}
 	var nextID string
-	scopeType, hasScope := reflect.TypeOf(RuleProposal{}).FieldByName("ScopeDeclaration")
-	_ = scopeType
+	// 依JSON合同识别后端增补，不依赖其内部Go字段名。
+	hasScope := false
+	proposalType := reflect.TypeOf(RuleProposal{})
+	for i := 0; i < proposalType.NumField(); i++ {
+		if strings.Split(proposalType.Field(i).Tag.Get("json"), ",")[0] == "scope_declaration" {
+			hasScope = true
+		}
+	}
 	control := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var err error
 		switch r.URL.Path {
@@ -141,6 +147,8 @@ func TestRuleProposalBrowserLoop(t *testing.T) {
 	command := exec.Command("python3", "../../tests/proposal_browser.py")
 	command.Env = append(os.Environ(), "NAS_FIXTURE_URL="+control.URL)
 	output, err := command.CombinedOutput()
+	// 等待控制请求结束，再断言其写入的后续任务状态。
+	control.Close()
 	t.Log(string(output))
 	if err != nil {
 		t.Fatal(err)
