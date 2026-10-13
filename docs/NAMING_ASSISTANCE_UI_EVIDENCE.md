@@ -88,3 +88,6 @@ NAS automatic请求无可信目录/显示名来源，不能花一次模型调用
 
 
 跨仓CI权限说明：NAS仓的默认GitHub CI身份无法读agent仓（checkout返回Repository not found），没有扩权或创建token。改由agent自身CI读取公开NAS固定SHA，运行naslearning相关race与12场景smoke；NAS完整Go/UI门和独立package门保留。失败、权限阻塞或未运行项均不记为通过，最终结果由交付回复绑定。
+
+
+部署事实增补：极空间用户在本地出Docker包后GUI导入；外层归档解包后image.tar是主要交付入口，Compose仅可选。部署说明列GUI网络/端口、卷、已有凭据环境、用户与启动参数。NAS CLI/SSH与GUI host模式未核验，不等待SSH或扩大监听。candy已由用户确认为Caddy，但配置/证书/权限未检查；不修改/复用，不默认公开管理面。

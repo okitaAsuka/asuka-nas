@@ -13,7 +13,7 @@ Go 1.26.9 + SQLite 的独立 NAS 番剧入库服务：RSS/.torrent → qBittorre
 - [命名辅助与语义快照合同](docs/NAMING_ASSISTANCE_HANDOFF.md)
 - [规则候选审核合同](docs/RULE_PROPOSALS_FRONTEND_HANDOFF.md)
 - [事件与通知](docs/NOTIFICATIONS.md)
-- [构建离线 Docker 包与 NAS 导入候选](docs/PACKAGING.md)
+- [本地出包 → 解包取image.tar → 极空间GUI导入（Compose可选）](docs/PACKAGING.md)
 - [只读 NAS 预检与运行边界](docs/RUNNING.md)
 - [已实现接口与未来接口的区分](docs/API.md)
 
@@ -24,6 +24,6 @@ make package-test
 make package-nas ARCH=amd64 PACKAGE_OUT="$PWD/dist"
 ```
 
-Go 检查需要真实 Go 1.26.9；UI 测试需要 Python3.12、`tests/requirements.txt` 与 Chromium。标准出包在 Docker 内编译；用户电脑无需另装 Go/npm，NAS 无需源码。Windows 使用 WSL2 + Docker Desktop 的 Linux containers，完整前提见 PACKAGING.md。CI 保留完整 Go/UI 门及独立包装门，包内 VERSION.json 绑定源码 SHA；配置模板默认无来源和凭据，事件/learning/自动命名均关闭。出包和配置校验不等于真实部署成功。
+Go 检查需要真实 Go 1.26.9；UI 测试需要 Python3.12、`tests/requirements.txt` 与 Chromium。标准出包在Docker内编译；用户电脑无需另装Go/npm，NAS无需源码。极空间GUI导入先解包外层tar.gz并选择image.tar，不要求NAS CLI；GUI的host模式未验，导入不会开放LAN管理。既有candy为Caddy外网反代，配置/证书/权限未检查，本包不修改或复用。Windows 使用 WSL2 + Docker Desktop 的 Linux containers，完整前提见 PACKAGING.md。CI 保留完整 Go/UI 门及独立包装门，包内 VERSION.json 绑定源码 SHA；配置模板默认无来源和凭据，事件/learning/自动命名均关闭。出包和配置校验不等于真实部署成功。
 
 CLI 默认仅校验配置、不联网；`-run` 启动 daemon；`-serve` 同时启动管理页和 daemon，会访问用户明确配置的服务。配置来源 URL、已有 qB/Emby 凭据只在本地私密配置/环境，不提交或进入日志。qB 与本程序必须报告同一下载路径，Emby Path 必须与媒体库路径一致；下载/库需要同设备且不重叠。

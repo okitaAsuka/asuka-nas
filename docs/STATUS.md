@@ -22,7 +22,7 @@
 
 验证入口：make verify（Go1.26.9格式/vet/race/build及Python预检），make verify-ui（保留原浏览器门并加入命名生产API测试），make package-test，make package-nas。本机SQLite/libc官方依赖下载Forbidden，本轮生产Go/浏览器由已授权CI执行；未执行或失败不能计为通过。最终运行结果见交付回复及[NAMING_ASSISTANCE_UI_EVIDENCE.md](NAMING_ASSISTANCE_UI_EVIDENCE.md)。CI归档生产浏览器日志/截图及绑定最终SHA的离线包。
 
-当前接口见[LOCAL_MANAGEMENT.md](LOCAL_MANAGEMENT.md)、[API.md](API.md)；命名边界见[NAMING_ASSISTANCE_HANDOFF.md](NAMING_ASSISTANCE_HANDOFF.md)；后端最终12场景跨仓证据见[NAMING_ASSISTANCE_EVIDENCE.md](NAMING_ASSISTANCE_EVIDENCE.md)。包装及回环SSH候选见[PACKAGING.md](PACKAGING.md)。规则候选合同见[RULE_PROPOSALS_FRONTEND_HANDOFF.md](RULE_PROPOSALS_FRONTEND_HANDOFF.md)，既有父审证据见[RULE_REVIEW_UI_EVIDENCE.md](RULE_REVIEW_UI_EVIDENCE.md)。
+当前接口见[LOCAL_MANAGEMENT.md](LOCAL_MANAGEMENT.md)、[API.md](API.md)；命名边界见[NAMING_ASSISTANCE_HANDOFF.md](NAMING_ASSISTANCE_HANDOFF.md)；后端最终12场景跨仓证据见[NAMING_ASSISTANCE_EVIDENCE.md](NAMING_ASSISTANCE_EVIDENCE.md)。交付以极空间GUI导入image.tar为主，外层包先解包；NAS CLI/Compose/SSH与GUI host模式未验。用户确认candy是Caddy外网反代，配置/证书/权限未检查，不改或复用，不默认公开管理页。Compose及已有授权回环SSH仅可选参考，见[PACKAGING.md](PACKAGING.md)。规则候选合同见[RULE_PROPOSALS_FRONTEND_HANDOFF.md](RULE_PROPOSALS_FRONTEND_HANDOFF.md)，既有父审证据见[RULE_REVIEW_UI_EVIDENCE.md](RULE_REVIEW_UI_EVIDENCE.md)。
 
 ## 历史阶段记录（不作为当前功能矩阵）
 

@@ -1,10 +1,14 @@
-# 本机出包与 NAS 离线导入
+# 本机出包与极空间 GUI 导入 image.tar
 
 本流程参考 asuka-agent `5e2d572293ed0074bdc5280caffe10edf18eafb0` 的
 `scripts/build_docker_and_save.bat`（docker build → docker save）；该版本 Makefile 没有发布 target。
-NAS 本流程只构建、出包，不推 registry、不启动服务、不更改 qB/Emby，不删除旧包/数据。
+NAS本流程只构建、出包，不推registry、不启动服务、不更改qB/Emby或Caddy，不删除旧包/数据。
 
-## 本机构建
+用户当前是极空间：在本地打Docker镜像包，再经极空间GUI导入；NAS Docker CLI/Compose/SSH权限尚未核验，不作为本轮前提。已有名为candy的Caddy做外网端口反代，配置、证书和权限未检查；不自动修改或复用，不把管理页默认公开到公网。
+
+**GUI要选择解包后的 `image.tar`，不是外层 `asuka-nas-...tar.gz`。** 外层归档还提供公开模板、版本与校验清单。Compose仅可选参考；导入镜像不代表NAS LAN地址可访问管理页。
+
+## 用户电脑本机构建（不要求 NAS CLI）
 
 需要 Git、GNU Make、Python 3.12+、Docker Engine/Desktop（Linux containers）及网络。
 Go 1.26.9、依赖、嵌入 UI 均在 Docker 构建阶段完成；NAS 无需 Go/npm 或源码。
@@ -43,9 +47,32 @@ Compose、配置/凭据模板、.env（无个人路径）、部署说明、VERSI
 不复制仓库配置、数据库、下载、媒体、缓存、.git 或主机凭据。元数据含源码 commit、镜像 ID、平台。
 归档与 SHA 清单不提供签名真实性；需通过可信渠道搬运，先检查校验再解包。
 
-## NAS 候选：Linux host 网络、回环管理
+## 极空间 GUI 主流程（真实 NAS 未验）
 
-需要 Linux amd64 NAS、兼容 Docker Compose v2（支持 pull_policy 与 create_host_path）、
+先在用户电脑核对外层.sha256并解包，检查SHA256SUMS及VERSION.json的源码SHA/平台/image。再通过极空间Docker GUI镜像导入功能选择 **image.tar**；具体按钮与host模式支持未实测。标准包是linux/amd64，不能根据品牌假定NAS架构；arm64候选未验。
+
+从config.template.json另建私密config.json，填已有授权服务和真实路径，保留events/learning/automatic_naming关闭。GUI字段按下表核对：
+
+| GUI 项目 | 候选设置 / 要填写的值 | 边界 |
+| --- | --- | --- |
+| 镜像 / 容器名 | 导入image.tar；镜像名称见VERSION.json；新建独立asuka-nas实例 | 不修改现有qB/Emby/Caddy；同状态库只运行一实例 |
+| 网络 | 若GUI支持Linux host，可作当前回环候选 | GUI能力未核验；只有bridge时，映射8787不能访问容器127.0.0.1，当前尚不能直接LAN管理 |
+| 端口 | host不填ports映射；管理仅127.0.0.1:8787；8788/8789默认关闭 | 不设公网/LAN发布或Caddy反代来绕过鉴权 |
+| 配置卷 | 已有私密config.json → /config/config.json，只读 | 若GUI只能挂目录，私密配置目录 → /config只读；所选用户须已有读取权 |
+| 状态卷 | 已有独立可写状态目录 → /data/asuka-nas | 保存SQLite；须已有权限，不覆盖现有库或擅自迁移生产库 |
+| 媒体卷 | 下载/库共同父目录 → /media；目标库可写 | 一次挂共同父目录；同设备且不重叠。容器路径须精确匹配qB save_path及Emby Path；示例不是实际路径断言 |
+| 环境变量 | ASUKA_NAS_QB_USERNAME、ASUKA_NAS_QB_PASSWORD、ASUKA_NAS_EMBY_TOKEN，填已有凭据 | GUI环境输入与credentials.env模板是替代填法；不生成token。关闭events/learning时不必填服务身份 |
+| 容器用户 | 镜像默认65532:65532；GUI如支持可选已有授权非root UID/GID | 配置读、状态写、源读和库链接权限须已具备，不自动chown/改媒体权限 |
+| Entrypoint | 保留/usr/local/bin/asuka-nas | 不替换为shell或反代 |
+| 首次只校验参数 | -config /config/config.json | 不加-run/-serve；不访问上游、不打开状态库；校验完成退出是正常行为 |
+| 经用户审查后的服务参数候选 | -serve -listen 127.0.0.1:8787 -config /config/config.json | 会启动daemon并访问授权上游；不是无副作用UI模式，本轮不启动真实NAS |
+| 重启 / 安全选项 | 首次不自动重启；GUI如支持，保留只读根、cap_drop ALL和no-new-privileges | 功能支持未核验；不开特权/root绕过失败 |
+
+host只使监听落在NAS回环，仍无LAN登录/鉴权。若极空间GUI不支持当前条件，管理访问方案尚待父设计；本轮不扩大监听、不新增Caddy/LAN实现，不等待SSH探查。本机浏览器/已有授权SSH只是后续可选访问候选，均未验。
+
+## 可选 NAS CLI / Compose 参考：host 与回环
+
+以下仅在用户已有NAS CLI/Compose权限时参考，GUI导入不要求这些命令。需要Linux amd64、兼容Docker Compose v2（支持pull_policy与create_host_path）、
 Linux 5.6+ openat2 及 /proc/self/fd。NAS 厂商 GUI 只支持 bridge 时不能直接采用本候选。
 普通 bridge 下 8787/8788/8789 监听的是容器回环，ports 映射不可使它们可达。
 host 网络让监听保持 NAS 回环，不提供 LAN 管理身份认证。端口冲突须先检查，不能停用原服务。
