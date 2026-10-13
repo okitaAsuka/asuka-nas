@@ -63,8 +63,11 @@ cp credentials.env.template credentials.env
 
 部署者自行填写 .env 中已有状态目录和媒体共同父目录；填 config.json 的实际 qB/Emby URL、
 下载/库路径、合法来源及 credentials.env 中已有凭据。此流程不生成 token、不修改权限。
-目录必须事先存在，UID/GID 65532 必须已有适当访问权；若不满足由部署者审查现有权限策略，
-不要直接 chown 现有 qB/Emby 数据。凭据文件按现有私密文件策略保管，不随归档分享。
+目录必须事先存在，默认容器 UID/GID 65532 必须已有适当访问权；若不满足由部署者审查现有权限策略，
+不要直接 chown 现有 qB/Emby 数据。可以将 .env 的 NAS_UID/NAS_GID 改为已有授权账号的
+数字 UID/GID（非 root），使容器使用已有文件所有权；不自动修改账号或主机权限。
+解包/cp 会遵循本机 umask，0600 配置只有其所有者可读，因此必须核对配置所有者与容器 UID，
+不能仅凭 archive 的公开模板模式假定可读。凭据文件按现有私密文件策略保管，不随归档分享。
 
 媒体共同父目录一次挂到 /media，downloads/library 必须同设备且不重叠。
 qB 报告的 save_path 必须与 NAS 配置下载路径完全一致；Emby 返回媒体 Path 必须与库路径一致。

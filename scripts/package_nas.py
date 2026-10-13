@@ -77,7 +77,7 @@ def package(root=ROOT, env=os.environ):
         for filename in ('compose.yaml', 'config.template.json', 'credentials.env.template'):
             shutil.copyfile(root / 'deploy/offline' / filename, bundle / filename)
         shutil.copyfile(root / 'docs/PACKAGING.md', bundle / 'DEPLOY.md')
-        (bundle / '.env').write_text(f'NAS_IMAGE={image}\nNAS_PLATFORM=linux/{arch}\nNAS_STATE_DIR=\nNAS_MEDIA_ROOT=\n')
+        (bundle / '.env').write_text(f'NAS_IMAGE={image}\nNAS_PLATFORM=linux/{arch}\nNAS_STATE_DIR=\nNAS_MEDIA_ROOT=\nNAS_UID=65532\nNAS_GID=65532\n')
         (bundle / 'VERSION.json').write_text(json.dumps({
             'version': version, 'revision': revision, 'platform': f'linux/{arch}',
             'image': image, 'image_id': details['Id'], 'arm64_runtime_verified': False,

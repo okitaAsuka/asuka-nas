@@ -5,7 +5,7 @@ services:
     platform: ${NAS_PLATFORM:?use the packaged .env}
     pull_policy: never
     network_mode: host
-    user: "65532:65532"
+    user: "${NAS_UID:-65532}:${NAS_GID:-65532}"
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
