@@ -24,6 +24,19 @@ with sync_playwright() as p:
     def preview(): page.get_by_role('button',name='预览完整整理表').click()
     confirm=page.get_by_role('button',name='人工批准本次命名方案')
     output=page.locator('[data-batch-preview=true]')
+    def approve_current_preview():
+        # Approval is meaningful only after the current server preview is rendered.
+        # Never rely on timing between a click and the SQLite/file fingerprint response.
+        try:
+            expect(output).to_contain_text('完整预览 · 请逐文件核对')
+            expect(page.locator('[data-batch=true]')).to_have_attribute('aria-busy','false')
+            page.locator('[name=naming_approval]').check()
+            expect(confirm).to_be_enabled()
+            confirm.click()
+        except Exception:
+            print('NAMING APPROVAL DIAGNOSTIC:',page.locator('[data-batch-status]').inner_text(),output.inner_text())
+            page.screenshot(path='/tmp/asuka-naming-real-failure.png',full_page=True)
+            raise
     open_case('primary'); expect(page.locator('[name=naming_season]')).to_have_value('')
     hints('Human library','Human Example','4')
     page.get_by_role('button',name='请求命名建议').evaluate('(b)=>{b.click();b.click()}')
@@ -106,7 +119,7 @@ with sync_playwright() as p:
     expect(page.locator('[data-naming-state]')).to_contain_text('已请求')
     fixture('unresolved','suggest');refresh();page.get_by_role('button',name='载入完整建议到编辑表').click()
     expect(page.locator('[name=batch_episode]')).to_have_value('1')
-    preview();page.locator('[name=naming_approval]').check();confirm.click()
+    preview();approve_current_preview()
     expect(page.get_by_text('计划已批准',exact=True)).to_be_visible()
     fixture('unresolved','execute');fixture('unresolved','discover')
     for case in ['manual_unresolved','automatic']:
@@ -120,7 +133,7 @@ with sync_playwright() as p:
         expect(page.locator('.naming-evidence')).to_contain_text('未调用模型')
         count=writes.count('naming-request')
         for name,value in [('batch_directory','Manual'),('batch_display_name','Manual'),('batch_season','2'),('batch_episode','1')]:page.locator(f'[name={name}]').fill(value)
-        preview();page.locator('[name=naming_approval]').check();confirm.click()
+        preview();approve_current_preview()
         expect(page.get_by_text('计划已批准',exact=True)).to_be_visible()
         fixture(case,'execute');fixture(case,'discover');fixture(case,'assert-no-requeue')
         assert writes.count('naming-request')==count
@@ -164,7 +177,7 @@ with sync_playwright() as p:
             expect(page.locator('[data-naming-status]')).to_contain_text('任务状态已更新')
             expect(page.locator('[data-naming-state]')).to_contain_text('建议待审核')
             expect(page.locator('[name=batch_episode]')).to_have_value('1')
-            preview();page.locator('[name=naming_approval]').check();confirm.click()
+            preview();approve_current_preview()
         expect(page.get_by_text('计划已批准',exact=True)).to_be_visible()
         fixture(case,'execute');fixture(case,'discover');fixture(case,'assert-no-requeue')
         assert writes.count('naming-request')==count

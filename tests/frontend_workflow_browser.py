@@ -24,7 +24,7 @@ with sync_playwright() as p:
     expect(page.locator('[data-workflow=downloading] strong')).to_have_text('21')
     expect(page.locator('[data-workflow=naming] strong')).to_have_text('22')
     expect(page.locator('[data-workflow=emby] strong')).to_have_text('21')
-    expect(page.locator('[data-workflow=failed] strong')).to_have_text('21')
+    expect(page.locator('[data-workflow=failed] strong')).to_have_text('22')
     expect(page.locator('.scope-note')).to_contain_text('全库 106')
     capture('real-overview-desktop')
     page.set_viewport_size({'width':390,'height':844});capture('real-overview-mobile')

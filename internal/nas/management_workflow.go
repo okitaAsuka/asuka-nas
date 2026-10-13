@@ -164,7 +164,7 @@ func (m *Management) workflowAPI(w http.ResponseWriter, r *http.Request, path st
 		filter = "all"
 	}
 	validFilter := filter == "all" || filter == "downloading" || filter == "naming" || filter == "emby" || filter == "failed" || filter == "ready"
-	if !validFilter || len(query) > 256 || len(after) > 128 {
+	if !validFilter || len([]rune(query)) > 256 || len(after) > 128 {
 		apiError(w, 400, "invalid_request")
 		return true
 	}

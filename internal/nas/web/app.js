@@ -307,7 +307,11 @@ function openJob(id, section = "") {
 }
 function jumpTo(id) {
   const target = document.getElementById("job-" + id);
-  if (!target) return;
+  if (!target) {
+    message.className = "notice";
+    message.textContent = "此任务在当前阶段暂无该入口的数据，请核对任务详情。";
+    return;
+  }
   target.tabIndex = -1;
   target.focus({ preventScroll: true });
   target.scrollIntoView({ block: "start", behavior: "instant" });
@@ -419,9 +423,9 @@ async function jobView(id) {
   );
   const p = panel("任务详情");
   p.id = "job-recovery";
-  p.append(el("p", j.sources?.[0] || v.contexts?.[0]?.title || "名称未知", "detail-name"), el("p", j.id, "mono"));
+  p.append(el("p", "来源摘要：" + (j.sources?.[0] || v.contexts?.[0]?.title || "名称未知"), "detail-name"), el("p", j.id, "mono"));
   const jumps = el("div", undefined, "actions detail-jumps");
-  [["naming", "命名 / 人工整理"], ["evidence", "来源证据"], ["plan", "文件方案"], ["comparison", "对比与审计"], ["recovery", "安全恢复"]].forEach(([id, label]) => jumps.append(button(label, () => jumpTo(id))));
+  [["naming", "命名 / 人工整理"], ["evidence", "来源证据"], ["plan", "文件方案"], ["comparison", "对比与审计"], ["recovery", "安全恢复"]].forEach(([id, label]) => { const b = button(label, () => jumpTo(id)); b.dataset.jobSection = id; jumps.append(b); });
   root.append(jumps);
   const summary = el("dl", undefined, "summary");
   [
@@ -586,6 +590,9 @@ async function jobView(id) {
     );
     root.append(form);
   }
+  jumps.querySelectorAll("[data-job-section]").forEach((b) => {
+    if (!root.querySelector("#job-" + b.dataset.jobSection)) unavailable(b, "此任务当前没有此阶段的数据");
+  });
   return root;
 }
 // 同一静态入口内按职责拆分；管理服务的embed/CSP路径保持不变。
