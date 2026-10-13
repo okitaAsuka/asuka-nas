@@ -142,8 +142,9 @@ with sync_playwright() as p:
     expect(page.locator('[data-naming-state]')).to_contain_text('已请求')
     fixture('offline','assert-offline')
     # Naming service returns503. Manual full-task workflow still executes with production API.
+    page.locator('[name=batch_mode]').select_option('extracted')
     for name,value in [('batch_directory','Offline'),('batch_display_name','Offline'),('batch_season','4'),('batch_offset','-66')]:page.locator(f'[name={name}]').fill(value)
-    page.locator('[name=batch_mode]').select_option('extracted');page.get_by_role('button',name='提取 / 展示连续编号').click()
+    page.get_by_role('button',name='提取 / 展示连续编号').click()
     preview();page.get_by_role('button',name='确认整表方案').click()
     expect(page.get_by_text('计划已批准',exact=True)).to_be_visible()
     fixture('offline','execute');fixture('offline','discover')
