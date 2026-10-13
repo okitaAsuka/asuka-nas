@@ -30,6 +30,11 @@ def package(root=ROOT, env=os.environ):
         raise ValueError('ARCH must be amd64 or arm64')
     if arch == 'arm64':
         print('WARNING: arm64 is experimental; runtime/NAS compatibility has not been verified.', flush=True)
+    module_cache = env.get('MODULE_CACHE')
+    if module_cache:
+        module_cache = Path(module_cache).expanduser().resolve()
+        if not module_cache.is_dir() or module_cache.name != 'download':
+            raise ValueError('MODULE_CACHE must be an existing Go pkg/mod/cache/download directory')
     output = Path(env.get('PACKAGE_OUT') or root / 'dist').expanduser().resolve()
     if output == root or output in root.parents or output == Path('/'):
         raise ValueError('PACKAGE_OUT must be a dedicated output directory')
@@ -54,9 +59,13 @@ def package(root=ROOT, env=os.environ):
              'go.mod', 'go.sum', 'cmd', 'internal'])
         with tarfile.open(source) as tar:
             tar.extractall(context, filter='data')
-        shutil.copyfile(root / 'Dockerfile', context / 'Dockerfile')
-        run(['docker', 'build', '--platform', f'linux/{arch}', '--build-arg', 'TARGETOS=linux',
-             '--build-arg', f'TARGETARCH={arch}', '-t', image, str(context)])
+        dockerfile = 'Dockerfile.offline' if module_cache else 'Dockerfile'
+        shutil.copyfile(root / dockerfile, context / 'Dockerfile')
+        build = ['docker', 'build', '--platform', f'linux/{arch}', '--build-arg', 'TARGETOS=linux',
+                 '--build-arg', f'TARGETARCH={arch}', '-t', image]
+        if module_cache:
+            build += ['--build-context', f'module-cache={module_cache}']
+        run(build + [str(context)])
         details = json.loads(capture(['docker', 'image', 'inspect', image]))[0]
         if details['Os'] != 'linux' or details['Architecture'] != arch:
             raise ValueError('built image platform mismatch')

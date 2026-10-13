@@ -22,6 +22,16 @@ make package-test
 make package-nas VERSION=v0.1.0 ARCH=amd64 PACKAGE_OUT="$PWD/dist"
 ```
 
+若已有经过可信下载的完整 Go module 下载缓存，可显式选择仓库已有的离线 Dockerfile：
+
+```sh
+make package-nas VERSION=v0.1.0 MODULE_CACHE="$(go env GOMODCACHE)/cache/download"
+```
+
+MODULE_CACHE 只接受现有名为 download 的下载缓存目录（不是整个模块目录或用户目录）。
+依赖步骤无网络，并执行 go mod verify；基础镜像仍需已缓存或可拉取。缓存不进入运行镜像/归档。
+这条路径不关闭在线 TLS 校验，不能替代依赖来源的信任验证。
+
 VERSION 默认 HEAD 的12位 SHA；ARCH 默认 amd64。只接受 amd64/arm64；arm64 是未验候选，
 需要本地 Docker 的交叉构建能力及目标机独立验证，不能据出包成功声称支持。
 脚本拒绝非法版本、脏跟踪文件、错误平台及同名包；失败只清理本轮临时目录。
