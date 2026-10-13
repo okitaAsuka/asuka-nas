@@ -28,16 +28,17 @@ func TestNamingGatewaySource(t *testing.T) {
 		JobVersion    int    `json:"job_version"`
 	}
 	type scenario struct {
-		wire      wire
-		f         *fixture
-		m         *Management
-		posts     atomic.Int32
-		handled   bool
-		restarted bool
+		wire       wire
+		f          *fixture
+		m          *Management
+		posts      atomic.Int32
+		handled    bool
+		restarted  bool
+		progressed bool
 	}
 	scenarios := []*scenario{}
 	ready := []wire{}
-	for _, name := range []string{"primary", "offline", "rejected", "stale", "conflict", "unresolved", "budget", "invalid"} {
+	for _, name := range []string{"primary", "offline", "rejected", "stale", "conflict", "unresolved", "budget", "invalid", "seed_progress", "automatic", "manual_stale", "manual_offline"} {
 		f := namingFixture(t)
 		if name == "primary" {
 			f.mu.Lock()
@@ -54,12 +55,20 @@ func TestNamingGatewaySource(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
+		if name == "automatic" {
+			if err := namingDaemon(f, true).TickJobs(context.Background(), time.Unix(1001, 0)); err != nil {
+				t.Fatal(err)
+			}
+			if requestCount(t, f) != 1 {
+				t.Fatal("automatic did not enqueue")
+			}
+		}
 		m, management := managementFixture(t, f)
 		s := &scenario{f: f, m: m}
 		server := httptest.NewUnstartedServer(nil)
 		server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if name == "offline" {
-				if _, err := os.Stat(filepath.Join(dir, "offline-connect")); err != nil {
+			if name == "offline" || name == "manual_offline" {
+				if _, err := os.Stat(filepath.Join(dir, name+"-connect")); err != nil {
 					apiError(w, 503, "fixture_offline")
 					return
 				}
@@ -102,6 +111,44 @@ func TestNamingGatewaySource(t *testing.T) {
 	for {
 		for _, s := range scenarios {
 			name := s.wire.Name
+
+			if name == "manual_stale" && !s.progressed {
+				if _, err := os.Stat(filepath.Join(dir, "manual_stale-context-change")); err == nil {
+					if err = s.f.store.AttachResourceTitle(context.Background(), "fixture", "private-guid", "Example changed [01]"); err != nil {
+						t.Fatal(err)
+					}
+					s.progressed = true
+					write("manual_stale-context-changed", true)
+				}
+			}
+			if name == "seed_progress" && !s.progressed {
+				if _, err := os.Stat(filepath.Join(dir, "seed_progress-model-started")); err == nil {
+					original := s.f.job().Version
+					s.f.tick(s.f.job().StopAt)
+					if s.f.job().Version == original || s.f.job().Seed != "stopped" || requestCount(t, s.f) != 1 {
+						t.Fatal("seed fixture did not advance")
+					}
+					s.progressed = true
+					write("seed_progress-stopped", true)
+				}
+			}
+			if name == "automatic" && !s.progressed {
+				if _, err := os.Stat(filepath.Join(dir, "automatic-recheck")); err == nil {
+					s.f.reopen()
+					s.m.Daemon.Engine = s.f.engine
+					d := namingDaemon(s.f, true)
+					for i := 0; i < 3; i++ {
+						if err := d.TickJobs(context.Background(), time.Unix(s.f.job().StopAt+int64(i), 0)); err != nil {
+							t.Fatal(err)
+						}
+					}
+					if requestCount(t, s.f) != 1 || s.f.job().Seed != "stopped" {
+						t.Fatal("automatic unresolved/restart/seed duplicated")
+					}
+					s.progressed = true
+					write("automatic-rechecked", true)
+				}
+			}
 			if name == "primary" && !s.restarted {
 				if _, err := os.Stat(filepath.Join(dir, "primary-restart")); err == nil {
 					s.f.reopen()
@@ -132,7 +179,7 @@ func TestNamingGatewaySource(t *testing.T) {
 					write("conflict-created", true)
 				}
 			}
-			if (name == "primary" || name == "offline") && !s.handled {
+			if (name == "primary" || name == "offline" || name == "seed_progress" || name == "automatic" || name == "rejected" || name == "manual_stale" || name == "manual_offline") && !s.handled {
 				if _, err := os.Stat(filepath.Join(dir, name+"-approved")); err == nil {
 					f := s.f
 					f.mu.Lock()
@@ -183,10 +230,32 @@ func TestNamingGatewaySource(t *testing.T) {
 		if err != nil || len(views) < 1 {
 			t.Fatal(err)
 		}
+		if (s.wire.Name == "seed_progress" || s.wire.Name == "automatic") && (!s.progressed || requestCount(t, s.f) != 1 || s.f.job().Seed != "stopped") {
+			t.Fatal("semantic/automatic quota regression")
+		}
+		if s.wire.Name == "rejected" || s.wire.Name == "manual_stale" || s.wire.Name == "manual_offline" {
+			if requestCount(t, s.f) != 1 {
+				t.Fatal("manual fallback re-requested model")
+			}
+			original, _, err := s.f.store.namingReview(context.Background(), views[0].ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			expected := "suggested"
+			if s.wire.Name == "rejected" {
+				expected = "rejected"
+			}
+			if s.wire.Name == "manual_offline" {
+				expected = "requested"
+			}
+			if original.State != expected || s.f.job().Plan.NamingReview {
+				t.Fatal("manual fallback rewrote original model audit")
+			}
+		}
 		if s.wire.Name == "primary" && (!s.restarted || s.posts.Load() != 2) {
 			t.Fatal("lost ACK not durably replayed")
 		}
-		if s.wire.Name != "primary" && s.wire.Name != "offline" && s.f.job().Import == "imported" {
+		if s.wire.Name != "primary" && s.wire.Name != "offline" && s.wire.Name != "seed_progress" && s.wire.Name != "automatic" && s.wire.Name != "rejected" && s.wire.Name != "manual_stale" && s.wire.Name != "manual_offline" && s.f.job().Import == "imported" {
 			t.Fatal("unsafe scenario executed")
 		}
 		events, err := s.f.store.Events(context.Background(), 0)
@@ -204,5 +273,5 @@ func TestNamingGatewaySource(t *testing.T) {
 			t.Fatal("missing audit")
 		}
 	}
-	fmt.Println("PASS real NAS SQLite handlers + full media manifest -> agent budget/model stub -> durable result/lost ACK/both restarts -> human current preview -> actual hardlinks/fakeEmby; offline/reject/stale/conflict/unresolved/budget/invalid")
+	fmt.Println("PASS real NAS SQLite handlers + full media manifest -> agent budget/model stub -> durable result/lost ACK/both restarts -> human current preview -> actual hardlinks/fakeEmby; offline/reject/stale/conflict/unresolved/budget/invalid/seed_progress/automatic-once-human-facts + rejected/stale/offline manual batch without re-inference")
 }

@@ -19,9 +19,11 @@ import (
 var envReference = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 
 type LearningServiceConfig struct {
-	Enabled  bool   `json:"enabled"`
-	Listen   string `json:"listen,omitempty"`
-	TokenEnv string `json:"token_env,omitempty"`
+	// 自动辅助默认关闭；只创建待审单任务快照，不调用模型或批准文件。
+	AutomaticNaming bool   `json:"automatic_naming,omitempty"`
+	Enabled         bool   `json:"enabled"`
+	Listen          string `json:"listen,omitempty"`
+	TokenEnv        string `json:"token_env,omitempty"`
 }
 
 // Address 不修改事件或浏览器监听。
@@ -34,6 +36,9 @@ func (c LearningServiceConfig) Address() string {
 
 // Validate 不读取或创建凭据；拒绝DNS/公网监听。
 func (c LearningServiceConfig) Validate() error {
+	if c.AutomaticNaming && !c.Enabled {
+		return errors.New("naming_automatic_service_required")
+	}
 	if !c.Enabled {
 		return nil
 	}

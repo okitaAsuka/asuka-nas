@@ -232,8 +232,20 @@ func TestNamingAssistanceBoundaries(t *testing.T) {
 				if err != nil || manual.Plan.Assistance == nil {
 					t.Fatal("lost exposure")
 				}
-				if err = f.engine.BatchConfirm(ctx, f.job().ID, manual.JobVersion, manual.Plan.Version, manual.Digest, *manual.Plan.Batch); err == nil {
-					t.Fatal("generic bypassed rejected review")
+				if err = f.engine.BatchConfirm(ctx, f.job().ID, manual.JobVersion, manual.Plan.Version, manual.Digest, *manual.Plan.Batch); err != nil {
+					t.Fatal("rejected model locked manual fallback", err)
+				}
+				f.mu.Lock()
+				f.discovered = true
+				f.mu.Unlock()
+				f.tick(1001)
+				original, _, err := f.store.namingReview(ctx, v.ID)
+				if err != nil || original.State != "rejected" {
+					t.Fatal("manual fallback rewrote model rejection")
+				}
+				page, err := f.store.LearningSamples(ctx, 0)
+				if err != nil || len(page.Items) != 0 || comparisons(t, f)[0].Intent.Origin != "model_assisted_human" {
+					t.Fatal("manual fallback forged human evidence")
 				}
 				return
 			}
@@ -387,30 +399,27 @@ func TestNamingSchemaUpgradePreservesEvidence(t *testing.T) {
 	}
 }
 
-// pending模型请求从不参与做种计时；离线后可显式刷新版本，再恢复同任务执行。
+// pending模型请求不参与做种计时；正交状态推进复用原请求/结果，不花新额度。
 func TestNamingOfflineDoesNotHoldSeedDeadline(t *testing.T) {
 	ctx := context.Background()
 	f := namingFixture(t)
 	v := namingRequest(t, f)
 	f.tick(f.job().StopAt)
 	j := f.job()
-	if j.Seed != "stopped" || j.Import != "needs_confirmation" {
-		t.Fatal("naming held seeding")
+	if j.Seed != "stopped" || j.Import != "needs_confirmation" || j.Version == v.Snapshot.JobVersion {
+		t.Fatal("fixture did not advance seeding")
 	}
-	if _, err := f.engine.SubmitNaming(ctx, namingResult(v)); err == nil {
-		t.Fatal("old job version accepted")
+	repeated, err := f.engine.RequestNaming(ctx, j.ID, j.Version, v.Snapshot.Hints, false)
+	if err != nil || repeated.ID != v.ID {
+		t.Fatal("seed progress consumed request quota", err)
 	}
-	refreshed, err := f.engine.RequestNaming(ctx, j.ID, j.Version, v.Snapshot.Hints, true)
+	accepted, err := f.engine.SubmitNaming(ctx, namingResult(v))
 	if err != nil {
-		t.Fatal(err)
-	}
-	accepted, err := f.engine.SubmitNaming(ctx, namingResult(refreshed))
-	if err != nil {
-		t.Fatal(err)
+		t.Fatal("seed progress invalidated result", err)
 	}
 	preview, err := f.engine.PreviewNaming(ctx, accepted.ID, accepted.Version, nil)
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || preview.JobVersion != j.Version {
+		t.Fatal("preview not bound to current job", err)
 	}
 	if err = f.engine.ConfirmNaming(ctx, accepted.ID, accepted.Version, preview.Digest); err != nil {
 		t.Fatal(err)
@@ -420,6 +429,10 @@ func TestNamingOfflineDoesNotHoldSeedDeadline(t *testing.T) {
 	f.mu.Unlock()
 	f.tick(j.StopAt + 1)
 	if f.job().Seed != "stopped" || f.job().Import != "imported" || f.job().Discovery != "confirmed" {
-		t.Fatal("offline task did not resume")
+		t.Fatal("same offline task did not resume")
+	}
+	var requests int
+	if err = f.store.db.QueryRow(`SELECT count(*) FROM naming_requests`).Scan(&requests); err != nil || requests != 1 {
+		t.Fatal("recharged request quota", requests, err)
 	}
 }
