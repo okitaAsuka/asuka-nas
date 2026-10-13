@@ -5,8 +5,11 @@ WORKDIR /src
 COPY go.mod go.sum ./
 COPY --from=module-cache / /go/pkg/mod/cache/download/
 RUN --network=none GOPROXY=file:///go/pkg/mod/cache/download GOSUMDB=off go mod download && go mod verify
-COPY . .
-RUN --network=none CGO_ENABLED=0 GOPROXY=off GOSUMDB=off go build -trimpath -o /out/asuka-nas ./cmd/asuka-nas
+COPY cmd ./cmd
+COPY internal ./internal
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+RUN --network=none GOOS=$TARGETOS GOARCH=$TARGETARCH CGO_ENABLED=0 GOPROXY=off GOSUMDB=off go build -trimpath -o /out/asuka-nas ./cmd/asuka-nas
 
 FROM debian:bookworm-slim
 COPY --from=build /out/asuka-nas /usr/local/bin/asuka-nas

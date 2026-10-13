@@ -1,0 +1,28 @@
+# Linux NAS 候选：明确采用 host 网络，保持所有回环与 Host/Origin 保护。
+services:
+  asuka-nas:
+    image: ${NAS_IMAGE:?use the packaged .env}
+    platform: ${NAS_PLATFORM:?use the packaged .env}
+    pull_policy: never
+    network_mode: host
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: "no"
+    command: ["-serve", "-listen", "127.0.0.1:8787", "-config", "/config/config.json"]
+    env_file: ./credentials.env
+    volumes:
+      - type: bind
+        source: ./config.json
+        target: /config/config.json
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${NAS_STATE_DIR:?set existing writable state directory}
+        target: /data/asuka-nas
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${NAS_MEDIA_ROOT:?set existing common media root}
+        target: /media
+        bind: {create_host_path: false}

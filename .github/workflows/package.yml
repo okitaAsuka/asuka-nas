@@ -1,0 +1,23 @@
+name: Offline package
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: make package-test
+      - run: make package-nas PACKAGE_OUT=/tmp/nas-package
+      - run: |
+          cd /tmp/nas-package
+          sha256sum -c *.sha256
+          tar -xzf *.tar.gz
+          cd asuka-nas-*/
+          sha256sum -c SHA256SUMS
+          docker load -i image.tar
+          docker run --rm --network none -v "$PWD/config.template.json:/config/config.json:ro" "$(python3 -c 'import json; print(json.load(open("VERSION.json"))["image"])')" -config /config/config.json
