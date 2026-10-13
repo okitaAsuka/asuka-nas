@@ -872,8 +872,9 @@ async function rulesView() {
     libraryDirectory = field(discovery, "媒体根内的相对系列目录（明确选择）", "library_directory"),
     candidateOutput = el("div");
   discovery.append(el("p", "只读取所选目录下的文件名与有界 NFO；最多 512 项、3 层子目录、每份 NFO 64KiB/合计 1MiB、5 秒。拒绝符号链接。已有季仅作观察，不能据此认定新篇章属于下一季；选择候选不授权入库。", "muted"));
-  let scanGeneration = 0;
+  let scanGeneration = 0, lastLibraryDirectory = libraryDirectory.value;
   function invalidateCandidate() {
+    lastLibraryDirectory = libraryDirectory.value;
     scanGeneration++;
     activeLibraryScan?.abort();
     activeLibraryScan = null;
@@ -881,8 +882,11 @@ async function rulesView() {
     candidateOutput.replaceChildren();
     invalidatePreview();
   }
-  libraryDirectory.addEventListener("input", invalidateCandidate);
-  libraryDirectory.addEventListener("change", invalidateCandidate);
+  const directoryChanged = () => {
+    if (libraryDirectory.value !== lastLibraryDirectory) invalidateCandidate();
+  };
+  libraryDirectory.addEventListener("input", directoryChanged);
+  libraryDirectory.addEventListener("change", directoryChanged);
   discovery.append(writeButton("读取目录候选", async () => {
     if (busy) return;
     invalidateCandidate();
