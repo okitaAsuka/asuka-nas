@@ -21,7 +21,7 @@
 
 新增 `TestFrontendWorkflowBrowserLoop` 启动生产 Management + 临时SQLite和文件，qB/Emby只为回环fake。实际 Chromium 检查106任务精确计数、未知/危险HTML纯文本摘要、21个已入库未发现任务、搜索/筛选/页2选择、刷新、命名深入口/证据/审计/恢复/返回/浏览器历史、旧成功与旧错误、连续刷新、加载失败和会话失败恢复、订阅双击一次CAS、缺档案不可保存、配置/缺失/未知区分、外部请求为0。
 
-本机真实 Go1.26.9 已取得，但官方模块的 SQLite/libc 下载 Forbidden；未绕过。系统自带 Chromium 可用：已有模拟DTO的命名与规则布局/交互门本机通过，它们**不能代替**生产API业务验收。生产完整验证及镜像包由已授权 GitHub CI 运行，最终结果与精确提交以交付回复绑定；失败/未运行不计通过。
+本机真实 Go1.26.9 已取得，但官方模块的 SQLite/libc 下载 Forbidden；未绕过。系统自带 Chromium 可用：已有模拟DTO的命名与规则布局/交互门本机通过，它们**不能代替**生产API业务验收。生产完整验证及镜像包由已授权 GitHub CI 运行：候选 addede20bdcddfaf2c98fd5d7d152e5358d9ca1a 的 [CI](https://github.com/okitaAsuka/asuka-nas/actions/runs/38408865938) 与 [Offline package](https://github.com/okitaAsuka/asuka-nas/actions/runs/38408866548) 已全部通过。最终版本继续绑定交付回复中的精确SHA、两条CI与artifact；失败/未运行不计通过。首次候选的重叠计数断言已纠正；终审测试明确等待当前完整服务端预览完成才勾选批准，不改产品批准语义。
 
 ## 截图
 
@@ -32,6 +32,6 @@ CI `nas-ui-<完整SHA>` artifact 归档 `/tmp/nas-ui.log`、既有命名截图�
 - `asuka-workflow-real-setup-desktop.png` / `asuka-workflow-real-setup-mobile.png`
 - `asuka-workflow-real-empty-desktop.png` / `asuka-workflow-real-load-error.png`
 
-桌面1440px与手机390px；截图须下载实际查看后才能完成视觉验收。日志以 `PASS WORKFLOW production Management + SQLite` 区分生产API证据和 `PASS MOCK ONLY`。保留期14天。
+桌面1440px与手机390px；截图须下载实际查看后才能完成视觉验收。截图artifact材料化下载若受网络限制，CI通过有界白名单日志记录四张overview/tasks原始PNG的校验和与分块字节，可经授权GitHub日志连接取回原图；仍只包含测试临时库数据，不能用模拟DTO截图替代。日志以 `PASS WORKFLOW production Management + SQLite` 区分生产API证据和 `PASS MOCK ONLY`。保留期14天。
 
 真实NAS、GUI启动、RSS/qB/Emby/模型/通知账号与上游兼容性仍未验。LAN登录、TVDB在线搜索、本页秘密/URL写接口未实现。Caddy、网络、鉴权、文件执行和凭据均未修改。

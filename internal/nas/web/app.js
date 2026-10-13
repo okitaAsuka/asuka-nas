@@ -40,6 +40,9 @@ const states = {
   not_connected: "未接入",
 };
 const errors = {
+  store_failed: "本地数据暂时无法读取，请稍后重新加载。",
+  database_unavailable: "本地数据库暂时不可用，请核对部署后重新加载。",
+  invalid_cursor: "分页位置不正确，请返回列表首页。",
   subscription_limit: "当前可用且启用的订阅已达 100 条；请先停用部分订阅。",
   subscription_history_limit:
     "订阅历史已达 10000 条；操作未保存，请先离线备份并安排历史治理，程序不会自动删除证据。",

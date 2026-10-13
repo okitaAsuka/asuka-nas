@@ -20,6 +20,8 @@ jobs:
       - run: python -m playwright install --with-deps chromium
       - run: make verify-ui | tee /tmp/nas-ui.log
         shell: bash
+      - run: python3 -B scripts/ui_screenshot_evidence.py
+        if: always()
       - uses: actions/upload-artifact@v4
         if: always()
         with:

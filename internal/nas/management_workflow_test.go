@@ -85,12 +85,25 @@ type workflowPage struct {
 func TestManagementWorkflowScopeSearchAndPrivacy(t *testing.T) {
 	f := newFixture(t, "Example [02].mkv", 7)
 	f.tick(1000)
+	originalID := f.job().ID
 	_, server := managementFixture(t, f)
 	addWorkflowJobs(t, f.store, 105)
 	var events int
 	f.store.db.QueryRow("SELECT count(*) FROM events").Scan(&events)
 	var first, second, filtered workflowPage
 	raw := workflowGet(t, server, "jobs", &first)
+	foundOriginal := false
+	for _, item := range first.Items {
+		if item.Job.ID == originalID {
+			foundOriginal = true
+			if item.Job.CompletedAt != 1000 || item.Job.SeedDays != 7 {
+				t.Fatal("existing public timing fields lost", item.Job)
+			}
+		}
+	}
+	if !foundOriginal {
+		t.Fatal("original task absent from first page")
+	}
 	if len(first.Items) != 100 || first.Next == "" || first.Matched != 106 || first.Scope.Truncated {
 		t.Fatal(first)
 	}
@@ -175,7 +188,9 @@ func TestFrontendWorkflowBrowserLoop(t *testing.T) {
 	}
 	f := newFixture(t, "Example [02].mkv", 7)
 	f.tick(1000)
-	_, web := managementFixture(t, f)
+	configured, web := managementFixture(t, f)
+	configured.Daemon.Config.QBURL = f.server.URL
+	configured.Daemon.Config.EmbyURL = f.server.URL
 	addWorkflowJobs(t, f.store, 105)
 	empty := newFixture(t, "Empty.mkv", -1)
 	emptyWeb := httptest.NewUnstartedServer(nil)

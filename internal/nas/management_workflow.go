@@ -83,6 +83,8 @@ func (s *Store) workflowSnapshot(ctx context.Context) (workflowSnapshot, error) 
  'download',json_extract(body,'$.download'),'import',json_extract(body,'$.import'),
  'refresh',json_extract(body,'$.refresh'),'discovery',json_extract(body,'$.discovery'),
  'seed',json_extract(body,'$.seed'),'stop_at',json_extract(body,'$.stop_at'),
+ 'completed_at',json_extract(body,'$.completed_at'),'seed_days',json_extract(body,'$.seed_days'),
+ 'next_attempt',coalesce(json_extract(body,'$.next_attempt'),0),
  'error_code',coalesce(json_extract(body,'$.error_code'),''),'block_reason',coalesce(json_extract(body,'$.block_reason'),'')),
  coalesce(json_extract(body,'$.plan.files[0].target'),''),coalesce(json_extract(body,'$.sources[0]'),''),
  coalesce((SELECT title FROM release_context c WHERE c.job_id=jobs.id ORDER BY subscription,title LIMIT 1),'')

@@ -96,6 +96,7 @@ with sync_playwright() as p:
     assert len(writes)==1,writes
     assert 'hidden-secret' not in page.content()
     nav('健康与接入');expect(page.get_by_text('未知 · 未发起连接探测',exact=True)).to_have_count(3)
+    expect(page.get_by_text('已提供（地址隐藏）',exact=True)).to_have_count(2)
     capture('real-setup-desktop')
     page.set_viewport_size({'width':390,'height':844});capture('real-setup-mobile')
     page.set_viewport_size({'width':1440,'height':1000})
