@@ -107,7 +107,7 @@ func publicError(err error) string {
 		return ""
 	}
 	code := err.Error()
-	for _, v := range strings.Fields(`stale_version stale_plan plan_frozen invalid_job_state fingerprint_changed conflict cross_device permission_denied target_reserved unsafe_path unknown_source invalid_subscription subscription_limit subscription_history_limit subscription_exists subscription_not_found subscription_frozen profile_unavailable rule_invalid rule_invalid_range rule_not_normalized rule_revision_exists rule_not_found series_order_conflict rule_disabled rule_scope_ambiguous title_file_conflict season_conflict absolute_mapping_unresolved source_mapping_unresolved mapping_conflict rule_normalization_unresolved collection_incomplete collection_preview_only episode_unresolved special_episode unsupported_manifest awaiting_plan_confirmation legacy_evidence_unresolved source_disabled invalid_request`) {
+	for _, v := range strings.Fields(`stale_version stale_plan plan_frozen invalid_job_state fingerprint_changed conflict cross_device permission_denied target_reserved unsafe_path unknown_source invalid_subscription subscription_limit subscription_history_limit subscription_exists subscription_not_found subscription_frozen profile_unavailable rule_invalid rule_invalid_range rule_not_normalized rule_revision_exists rule_not_found series_order_conflict rule_disabled rule_scope_ambiguous title_file_conflict season_conflict absolute_mapping_unresolved source_mapping_unresolved mapping_conflict rule_normalization_unresolved collection_incomplete collection_preview_only episode_unresolved special_episode unsupported_manifest awaiting_plan_confirmation legacy_evidence_unresolved source_disabled invalid_request library_unavailable library_unsafe_path library_read_failed library_limit library_cancelled library_changed candidate_stale`) {
 		if code == v {
 			return v
 		}
@@ -198,7 +198,7 @@ func (m *Management) api(w http.ResponseWriter, r *http.Request) {
 				apiError(w, 503, "database_unavailable")
 				return
 			}
-			apiJSON(w, map[string]any{"mode": "local_single_user", "database": "ok", "gateway": "not_connected", "discord": "not_connected", "metadata": "not_connected", "learning": "not_connected", "model": "not_connected"})
+			apiJSON(w, map[string]any{"mode": "local_single_user", "database": "ok", "gateway": "not_connected", "discord": "not_connected", "metadata": "not_connected", "learning": "local_evidence_candidates", "model": "not_connected"})
 			return
 		case "subscriptions":
 			v, next, total, err := s.SubscriptionPage(ctx, r.URL.Query().Get("after"))
@@ -348,6 +348,41 @@ func (m *Management) api(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			m.Daemon.sourceMu.Unlock()
+		}
+	case "library-candidates", "candidate-rule-preview", "candidate-rule":
+		var v struct {
+			Directory string     `json:"directory"`
+			Digest    string     `json:"digest"`
+			Rule      NamingRule `json:"rule"`
+			Title     string     `json:"title"`
+			Source    string     `json:"source"`
+		}
+		if err = decodeRequest(w, r, &v); err == nil {
+			var candidates LibraryCandidates
+			candidates, err = discoverLibrary(ctx, m.Daemon.Config.Library, v.Directory)
+			if err == nil && path == "library-candidates" {
+				apiJSON(w, candidates)
+				return
+			}
+			if err == nil && (v.Digest == "" || v.Digest != candidates.Digest || v.Rule.Directory != v.Directory) {
+				err = errors.New("candidate_stale")
+			}
+			if err == nil {
+				err = v.Rule.Validate()
+			}
+			if err == nil && path == "candidate-rule-preview" {
+				var decision NamingDecision
+				decision, err = v.Rule.Resolve(v.Title, v.Source)
+				if err == nil {
+					apiJSON(w, map[string]any{"decision": decision, "explanation": "已有库仅提供局部证据；此草稿须人工确认篇章季号与集序，保存后仍需单独启用。"})
+					return
+				}
+			}
+			if err == nil && path == "candidate-rule" {
+				m.Daemon.Engine.mu.Lock()
+				err = s.AddRule(ctx, v.Rule)
+				m.Daemon.Engine.mu.Unlock()
+			}
 		}
 	case "rules":
 		var v NamingRule

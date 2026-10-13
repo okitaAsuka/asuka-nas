@@ -8,4 +8,4 @@ verify:
 
 .PHONY: verify-ui
 verify-ui:
-	NAS_BROWSER_TEST=1 go test -race -count=1 ./internal/nas -run '^Test(BrowserProductLoop|IndependentBrowserPreviewOwnership)$$' -v
+	NAS_BROWSER_TEST=1 go test -race -count=1 ./internal/nas -run '^Test(BrowserProductLoop|IndependentBrowserPreviewOwnership|LibraryCandidateBrowserLoop)$$' -v
