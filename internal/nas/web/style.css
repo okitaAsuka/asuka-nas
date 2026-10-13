@@ -543,3 +543,19 @@ summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 }
 
 .proposal-sample p { overflow-wrap: anywhere; }
+
+/* 命名辅助与批量表共用排版；完整依据在窄屏转为逐文件卡片。 */
+.naming-assistance > .panel { border-top: 3px solid var(--accent); }
+.naming-state { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.naming-hints { padding: var(--space-4); background: var(--surface-muted); border-radius: var(--radius); }
+.naming-evidence { margin-top: var(--space-4); }
+.naming-evidence h3 { font-size: 17px; }
+.naming-evidence .mono, .naming-evidence td, .naming-uncertainties { overflow-wrap: anywhere; }
+.naming-uncertainties { padding: var(--space-4) var(--space-5); background: #fff8e9; border-radius: var(--radius); }
+.naming-assistance .batch-confirm { display: flex; flex-wrap: wrap; }
+.naming-assistance .batch-confirm .order-approval { flex-basis: 100%; margin: 0 0 var(--space-3); }
+.naming-assistance .batch-status:focus { outline: 2px solid var(--focus); outline-offset: 2px; }
+@media (max-width: 650px) {
+  .naming-hints { padding: var(--space-3); }
+  .naming-assistance .actions button { flex: 1 1 145px; }
+}

@@ -76,6 +76,15 @@ const errors = {
   collection_preview_only: "多集单文件不支持；不能强制改成单集。",
   unsupported_episode_kind: "特殊篇或非整数编号暂不支持，请人工诊断。",
   subtitle_mapping_ambiguous: "字幕须同目录同视频stem，支持srt/ass/ssa/vtt及有限语言后缀。",
+  naming_stale: "命名依据已变化；草稿保留，请重新读取任务与建议，再明确申请当前快照。",
+  naming_invalid: "命名事实或文件建议不完整，请核对目录、显示名、季号与全部文件。",
+  naming_not_found: "此命名请求不存在，请重新读取任务。",
+  naming_retry_required: "已有命名请求；新请求必须明确重试，且旧项已拒绝、过期或未解。",
+  naming_limit: "命名辅助达到限额：最多32文件、16来源标题，每任务最多3份请求。仍可核对人工整理。",
+  naming_rules_available: "已有明确规则可解，请刷新任务或核对命名规则。",
+  naming_unresolved: "缺少明确命名依据；请补充人工事实或填写完整整理表。",
+  naming_preview_required: "模型接触来源会永久保留；请使用此建议的当前完整预览再批准。",
+  naming_replay_conflict: "已有不同结果，请重新读取建议，不会覆盖原始证据。",
   stale_plan: "未开始计划已过期：返回任务重新规划；重试不会改动旧计划。",
 };
 function el(tag, text, cls) {
@@ -431,7 +440,7 @@ async function jobView(id) {
     ),
   );
   root.append(p);
-  if (j.download === "completed" && j.import !== "imported" && !j.plan?.started && !permanent) root.append(batchPanel(j,v));
+  if (j.download === "completed" && !permanent) root.append(await namingPanel(j, v));
   if (v.contexts?.length) {
     const evidence = panel("来源证据（最多 100 条）");
     v.contexts.forEach((c) => {
@@ -948,8 +957,9 @@ function renderBatchPreview(result) {
 }
 
 class BatchWorkbench {
-  constructor(job, detail) {
-    this.node = panel("批量整理并入库");
+  constructor(job, detail, assistance = null) {
+    this.assistance = assistance;
+    this.node = panel(assistance ? "编辑命名建议 · 完整任务" : "批量整理并入库");
     this.node.dataset.batch = "true";
     this.node.classList.add("batch-workbench");
     this.steps = batchSteps(1);
@@ -969,13 +979,13 @@ class BatchWorkbench {
     this.output = el("div");
     this.output.dataset.batchPreview = "true";
     this.editor = new BatchEditor(job, detail, () => this.invalidate());
-    this.gate = new ReviewedRequestGate(() => this.editor.snapshot());
+    this.gate = new ReviewedRequestGate(() => JSON.stringify([this.assistance?.id, this.assistance?.version, this.editor.snapshot()]));
     this.preview = writeButton(
       "预览完整整理表",
       () => this.readPreview(),
       true,
     );
-    this.confirm = writeButton("确认整表方案", () => this.confirmPlan(), true);
+    this.confirm = writeButton(assistance ? "人工批准本次命名方案" : "确认整表方案", () => this.confirmPlan(), true);
     this.confirm.setAttribute("aria-describedby", "batch-status");
     unavailable(this.confirm, "先预览当前整表");
     this.cancel = button("取消本次预览", () => {
@@ -1012,6 +1022,19 @@ class BatchWorkbench {
       ),
     );
     this.node.append(scope, this.candidatePanel());
+    if (assistance) {
+      this.approval = el("input");
+      this.approval.type = "checkbox";
+      this.approval.name = "naming_approval";
+      const label = el("label", undefined, "order-approval");
+      label.append(this.approval, el("span", "我已核对完整文件、季集、依据与不确定项，明确批准当前预览。只批准本次任务，不启用未来规则。"));
+      this.confirmArea.prepend(label);
+      this.approval.addEventListener("change", () => {
+        this.confirm.dataset.unavailable = String(!this.approval.checked || !this.gate.reviewed());
+        setBusy(busy);
+      });
+      this.node.append(el("p", "来源：模型辅助 + 人工终审。修改、拒绝或人工整理仍保留模型接触来源，不进入纯人工学习样本。", "notice"));
+    }
     this.node.addEventListener("reset", () => {
       this.editor.clearOrder();
       this.invalidate();
@@ -1025,6 +1048,7 @@ class BatchWorkbench {
   }
   invalidate(text = "草稿变更后，请重新预览完整整理表。") {
     this.gate.invalidate();
+    if (this.approval) this.approval.checked = false;
     this.output.replaceChildren();
     this.candidateOutput?.replaceChildren();
     unavailable(this.confirm, "先预览当前整表");
@@ -1036,24 +1060,24 @@ class BatchWorkbench {
     this.invalidate();
     this.editor.update();
     const ticket = this.gate.begin(),
-      request = this.editor.request();
+      request = this.assistance ? { id: this.assistance.id, version: this.assistance.version, organization: this.editor.request().organization } : this.editor.request();
     this.controller = new AbortController();
     setBusy(true);
     this.node.setAttribute("aria-busy", "true");
     this.feedback("正在校验全部源文件、字幕与目标冲突… 可取消，草稿会保留。");
     try {
       const result = await api(
-        "batch-preview",
+        this.assistance ? "naming-preview" : "batch-preview",
         request,
         this.controller.signal,
       );
       if (
-        result.job_version !== request.version ||
+        (!this.assistance && result.job_version !== request.version) ||
         !this.gate.accept(ticket, request, result)
       )
         return;
       this.output.replaceChildren(renderBatchPreview(result));
-      this.confirm.dataset.unavailable = "false";
+      this.confirm.dataset.unavailable = String(!!this.approval);
       this.confirm.title = "";
       this.confirmArea.hidden = false;
       this.steps.replaceWith((this.steps = batchSteps(3)));
@@ -1064,6 +1088,7 @@ class BatchWorkbench {
       if (ticket.owns()) {
         this.feedback(errors[e.message] || `预览未完成：${e.message}`, true);
         this.editor.markError(e.message);
+        if (["naming_stale", "stale_version", "stale_plan", "naming_preview_required"].includes(e.message)) await this.onConflict?.();
       }
     } finally {
       if (
@@ -1080,7 +1105,7 @@ class BatchWorkbench {
   async confirmPlan() {
     if (busy) return;
     const reviewed = this.gate.reviewed();
-    if (!reviewed) {
+    if (!reviewed || (this.approval && !this.approval.checked)) {
       this.editor.clearOrder();
       this.editor.update();
       this.invalidate("输入已变化；请先预览当前整表，再确认。");
@@ -1094,11 +1119,9 @@ class BatchWorkbench {
       "正在保存已核对的完整方案… 确认请求发出后无法撤销，请等待状态。",
     );
     try {
-      await api("batch-confirm", {
-        ...reviewed.request,
-        plan_version: reviewed.plan.version,
-        digest: reviewed.digest,
-      });
+      await api(this.assistance ? "naming-confirm" : "batch-confirm", this.assistance ? {
+        id: reviewed.request.id, version: reviewed.request.version, digest: reviewed.digest,
+      } : { ...reviewed.request, plan_version: reviewed.plan.version, digest: reviewed.digest });
       if (!ticket.owns()) return;
       message.className = "notice";
       message.textContent =
@@ -1109,6 +1132,7 @@ class BatchWorkbench {
         this.invalidate();
         this.feedback(errors[e.message] || `确认未完成：${e.message}`, true);
         this.editor.markError(e.message);
+        if (["naming_stale", "stale_version", "stale_plan", "naming_preview_required"].includes(e.message)) await this.onConflict?.();
       }
     } finally {
       if (!ticket.owns() && this.status.textContent.startsWith("正在保存"))
@@ -1192,6 +1216,258 @@ function batchPanel(job, detail) {
   return new BatchWorkbench(job, detail).node;
 }
 
+const namingStates = {
+  requested: "已请求 · 等待结果", suggested: "建议待审核", unresolved: "依据不足 · 待补充",
+  rejected: "已人工拒绝", approved: "已人工批准", stale: "依据已过期",
+};
+
+// 辅助状态独立轮询；不以requested推断agent在线、调用中或进度。
+class NamingAssistance {
+  constructor(job, detail, items, readError = "") {
+    this.job = job;
+    this.detail = detail;
+    this.items = items || [];
+    this.generation = generation;
+    this.node = el("div", undefined, "naming-assistance");
+    this.panel = panel("agent 命名辅助 · 本次任务");
+    this.panel.dataset.naming = "true";
+    this.state = el("p", undefined, "naming-state");
+    this.state.dataset.namingState = "true";
+    this.state.setAttribute("role", "status");
+    this.panel.append(this.state, el("p", "建议帮助整理，人工决定是否入库。agent 未开启或离线时，下载、做种和人工填表仍可继续。", "muted"));
+    const hints = el("div", undefined, "grid naming-hints");
+    this.directory = field(hints, "人工明确的媒体目录（可空）", "naming_directory");
+    this.display = field(hints, "人工明确的显示名（可空）", "naming_display_name");
+    this.season = field(hints, "人工明确的季号（可空，不设默认）", "naming_season", "", "number");
+    this.season.min = 1; this.season.max = 99; this.season.step = 1;
+    this.hintGate = new ReviewedRequestGate(() => JSON.stringify([job.id, job.version, this.hints(), this.latest?.id, this.latest?.version]));
+    for (const event of ["input", "change", "reset"]) hints.addEventListener(event, () => this.hintGate.invalidate());
+    this.status = el("p", undefined, "batch-status muted");
+    this.status.dataset.namingStatus = "true";
+    this.status.setAttribute("role", "status");
+    this.status.tabIndex = -1;
+    this.request = writeButton("请求命名建议", () => this.requestNaming(), true);
+    this.rejectCheck = el("input"); this.rejectCheck.type = "checkbox"; this.rejectCheck.name = "naming_rejection";
+    this.rejectLabel = el("label", undefined, "order-approval");
+    this.rejectLabel.append(this.rejectCheck, el("span", "我明确拒绝此请求 / 建议；不批准文件，不自动重新请求。"));
+    this.reject = writeButton("人工拒绝本次建议", () => this.rejectNaming());
+    this.rejectCheck.addEventListener("change", () => this.sync());
+    this.refresh = writeButton("重新读取建议状态", () => this.poll(true));
+    const actions = el("div", undefined, "actions");
+    actions.append(this.request, this.refresh);
+    this.evidence = el("div", undefined, "naming-evidence");
+    this.editorSlot = el("div");
+    this.panel.append(hints, actions, this.status, this.evidence, this.rejectLabel, this.reject);
+    this.node.append(this.panel, this.editorSlot);
+    this.render();
+    if (readError) this.feedback(readError, true);
+    this.schedule();
+  }
+  get latest() { return this.items.at(-1); }
+  hints() { return { directory: this.directory.value, display_name: this.display.value, season: Number(this.season.value) }; }
+  current() { return this.generation === generation && this.node.isConnected; }
+  feedback(text, error = false) {
+    this.status.textContent = text;
+    this.status.className = "batch-status " + (error ? "error" : "muted");
+    this.status.setAttribute("role", error ? "alert" : "status");
+    if (error && this.current()) this.status.focus();
+  }
+  sync() {
+    const v = this.latest, editable = this.job.import === "needs_confirmation" && !this.job.plan?.approved && !this.job.plan?.started;
+    this.request.textContent = v ? "明确重新请求当前快照" : "请求命名建议";
+    this.request.dataset.unavailable = String(!editable || !!v && !["unresolved", "rejected", "stale"].includes(v.state));
+    this.reject.dataset.unavailable = String(!v || ["approved", "rejected"].includes(v.state) || !this.rejectCheck.checked);
+    this.rejectLabel.hidden = this.reject.hidden = !v || ["approved", "rejected"].includes(v.state);
+    setBusy(busy);
+  }
+  render(draft = null, hints = null) {
+    const v = this.latest;
+    this.state.replaceChildren(badge(v ? namingStates[v.state] || v.state : "尚未请求", v?.state === "unresolved" || v?.state === "stale" ? "warn" : ""));
+    if (v?.state === "requested") this.state.append(el("span", " 请求已保存；NAS 没有agent在线或调用进度信息。", "muted"));
+    this.evidence.replaceChildren();
+    if (v) {
+      const facts = hints || v.snapshot.hints;
+      this.directory.value = facts.directory || ""; this.display.value = facts.display_name || ""; this.season.value = facts.season || "";
+      this.evidence.append(el("p", `请求版本 ${v.version} · ${v.snapshot.files.length} 个完整源文件 · 来源：模型辅助 + 人工审核`, "muted"));
+      if (v.result) this.evidence.append(this.resultTable(v));
+      if (v.state === "unresolved") this.evidence.append(el("p", "可补充上方明确事实，再主动申请一次新建议；也可直接在下方人工填写，完整预览后批准。每任务最多3份请求，不自动重试。", "notice"));
+      if (["rejected", "stale"].includes(v.state) && v.result) this.evidence.append(el("p", "原结果与模型接触来源保留。此后端版本不能在拒绝 / 过期后直接批准批量草稿；请明确申请当前快照。仍可填写、保留人工草稿。", "notice"));
+      if (v.state === "approved" && v.preview?.plan?.batch) this.evidence.append(button("复用已确认事实为规则草稿", () => {
+        if (busy || !this.current()) return;
+        ruleClues = { contexts: this.detail.contexts || [], source: v.preview.plan.batch.rows[0]?.source || "", organization: v.preview.plan.batch };
+        navigate("rules");
+      }));
+      if (this.items.length > 1) {
+        const history = el("details"); history.append(el("summary", `查看 ${this.items.length} 份请求历史`));
+        this.items.forEach(item => {
+          history.append(el("p", `${item.id.slice(0, 12)} · v${item.version} · ${namingStates[item.state] || item.state}`, "mono"));
+          if (item.result) history.append(this.resultTable(item));
+        });
+        this.evidence.append(history);
+      }
+    }
+    this.rejectCheck.checked = false;
+    this.editorSlot.replaceChildren();
+    if (this.job.import !== "imported" && !this.job.plan?.started && !this.job.plan?.approved) {
+      const active = v?.result && ["suggested", "unresolved"].includes(v.state) ? v
+        : v?.state === "requested" ? [...this.items].reverse().find(item => item.result && ["suggested", "unresolved"].includes(item.state)) || null
+        : null;
+      if (active && active !== v) this.evidence.append(el("p", "新请求仍待结果；下方人工表绑定此前未解 / 建议的模型来源，须完整预览与终审。", "notice"), this.resultTable(active));
+      this.workbench = new BatchWorkbench(this.job, this.detail, active);
+      this.workbench.onConflict = () => this.recoverContext();
+      this.editorSlot.append(this.workbench.node);
+      if (this.items.some(item => item.result) && !active) {
+        unavailable(this.workbench.preview, "请明确申请当前命名快照");
+        unavailable(this.workbench.confirm, "拒绝 / 过期结果不能直接批准");
+      }
+      if (draft) {
+        const editor = this.workbench.editor;
+        editor.directory.value = draft.directory; editor.display.value = draft.display;
+        editor.season.value = draft.season; editor.mode.value = draft.mode;
+        editor.offset.value = draft.offset; editor.start.value = draft.start;
+        editor.rows.sort((a, b) => draft.rows.findIndex(r => r.source === a.source) - draft.rows.findIndex(r => r.source === b.source));
+        editor.rows.forEach(row => { row.episode = draft.rows.find(r => r.source === row.source)?.episode || ""; });
+        editor.clearOrder(); editor.renderRows(); editor.update();
+      } else if (active) {
+        const editor = this.workbench.editor;
+        editor.directory.value = active.snapshot.hints.directory || "";
+        editor.display.value = active.snapshot.hints.display_name || "";
+        editor.season.value = active.snapshot.hints.season || "";
+        editor.update();
+      }
+      if (active?.state === "suggested") {
+        // 默认建议通过服务端绑定私有source；不在前端猜测同basename对应哪个文件。
+        this.workbench.node.querySelector("h2").after(writeButton("载入完整建议到编辑表", () => this.loadSuggestion(active), true));
+        this.workbench.feedback("先载入服务端完整建议，核对逐文件映射；编辑后重新预览再批准。也可直接人工填写完整表。" );
+      }
+    }
+    this.sync();
+  }
+  resultTable(v) {
+    const root = el("div");
+    root.append(el("h3", v.state === "unresolved" ? "缺少的依据" : "完整逐文件建议"), el("p", v.result.explanation));
+    const uncertain = el("ul", undefined, "naming-uncertainties");
+    (v.result.uncertainties || []).forEach(text => uncertain.append(el("li", text)));
+    if (uncertain.childNodes.length) root.append(uncertain);
+    const t = comparisonTable(["原名 → 建议目标", "季 / 集", "依据", "不确定项"]);
+    v.snapshot.files.forEach(f => {
+      const r = v.result.files.find(x => x.file_id === f.id);
+      fileRow(t.body, [filePair(f.name, r?.target || (f.kind === "auxiliary" ? "辅助文件 · 不入库" : "未确定")),
+        `${r?.season || "未声明"} / ${r?.episode || "未声明"}`,
+        r?.basis || "未提供依据", (r?.uncertainties || []).join("；") || "无已列出项 · 仍须人工核对"], ["原名 → 目标", "季 / 集", "依据", "不确定项"]);
+    });
+    root.append(t.wrap); return root;
+  }
+  async recoverContext() {
+    const g = generation;
+    try {
+      const [detail, data] = await Promise.all([
+        api("jobs/" + encodeURIComponent(this.job.id)),
+        api("naming?job_id=" + encodeURIComponent(this.job.id)),
+      ]);
+      if (g !== generation || !this.current()) return;
+      this.job = detail.job; this.detail = detail;
+      this.items = data.items || [];
+      this.hintGate.invalidate();
+      if (this.workbench) {
+        unavailable(this.workbench.preview, "请核对最新建议后重新载入");
+        unavailable(this.workbench.confirm, "必须重新预览当前命名快照");
+      }
+      this.state.replaceChildren(badge(namingStates[data.items?.at(-1)?.state] || "状态待核对", "warn"));
+      // 冲突后重读事实但保留草稿与旧请求引用；绝不静默重新绑定或批准。
+      this.feedback("任务与建议状态已重新读取；草稿保留。请核对当前状态并明确重试，或刷新任务载入最新建议。" );
+      this.sync();
+    } catch (e) {
+      if (g === generation && this.current()) this.feedback("状态重读未完成；草稿保留，请手动重新读取。", true);
+    }
+  }
+  async loadSuggestion(v) {
+    if (busy) return;
+    const wb = this.workbench;
+    wb.invalidate();
+    const ticket = wb.gate.begin(); setBusy(true);
+    try {
+      const result = await api("naming-preview", { id: v.id, version: v.version });
+      if (!ticket.owns() || !this.current()) return;
+      const b = result.plan.batch, editor = wb.editor;
+      editor.directory.value = b.directory; editor.display.value = b.display_name; editor.season.value = b.season; editor.mode.value = "manual";
+      editor.rows.forEach(row => { row.input.value = b.rows.find(r => r.source === row.source)?.episode || ""; });
+      editor.clearOrder(); editor.update();
+      // 载入只填表，持久preview绝不自动转为本地批准态。
+      wb.invalidate("已载入完整建议；请核对 / 修改，再重新预览当前整表。" );
+    } catch (e) { if (ticket.owns() && this.current()) wb.feedback(errors[e.message] || e.message, true); }
+    finally { setBusy(false); }
+  }
+  async requestNaming() {
+    if (busy) return;
+    this.hintGate.invalidate(); const ticket = this.hintGate.begin();
+    const request = { job_id: this.job.id, job_version: this.job.version, hints: this.hints(), retry: !!this.latest };
+    setBusy(true);
+    try {
+      await api("naming-request", request);
+      if (!ticket.owns() || !this.current()) return;
+      await this.poll(true);
+    } catch (e) {
+      if (ticket.owns() && this.current()) {
+        this.feedback(errors[e.message] || e.message, true);
+        if (["naming_stale", "stale_version"].includes(e.message)) await this.recoverContext();
+      }
+    }
+    finally { setBusy(false); }
+  }
+  async rejectNaming() {
+    if (busy || !this.rejectCheck.checked || !this.latest) return;
+    const v = this.latest, ticket = this.hintGate.begin();
+    this.workbench?.invalidate("已取消审核；等待拒绝结果。" ); setBusy(true);
+    try {
+      await api("naming-reject", { id: v.id, version: v.version });
+      if (!ticket.owns() || !this.current()) return;
+      await this.poll(true);
+      this.feedback("已人工拒绝；不会自动重新请求。原始依据与来源保留。" );
+    } catch (e) {
+      if (ticket.owns() && this.current()) {
+        this.feedback(errors[e.message] || e.message, true);
+        if (["naming_stale", "stale_version"].includes(e.message)) await this.recoverContext();
+      }
+    }
+    finally { setBusy(false); }
+  }
+  schedule() {
+    setTimeout(async () => {
+      if (!this.current()) return;
+      if (this.latest?.state === "requested" && !busy) await this.poll(false);
+      this.schedule();
+    }, 5000);
+  }
+  async poll(explicit) {
+    if (!this.current() || this.polling) return;
+    this.polling = true;
+    const g = generation, ticket = this.hintGate.begin();
+    try {
+      const data = await api("naming?job_id=" + encodeURIComponent(this.job.id));
+      if (g !== generation || !this.current() || !ticket.owns()) return;
+      const changed = JSON.stringify(data.items) !== JSON.stringify(this.items);
+      if (changed) {
+        // 新结果切换审核通道时保留人工草稿；在途输入变动仍丢弃旧响应。
+        const raw = this.workbench?.editor.raw();
+        const dirty = raw && (raw.directory || raw.display || raw.season || raw.rows.some(row => row.episode));
+        const draft = dirty ? this.workbench.editor.raw() : null;
+        const hints = this.hints();
+        this.items = data.items || []; this.render(draft, hints);
+        if (draft) this.feedback("建议状态已更新；人工草稿保留，请重新预览当前完整表。" );
+      } else if (explicit) this.feedback("状态已重新读取；未自动批准或重新请求。" );
+    } catch (e) { if (g === generation && this.current() && ticket.owns() && explicit) this.feedback(errors[e.message] || e.message, true); }
+    finally { this.polling = false; }
+  }
+}
+async function namingPanel(job, detail) {
+  let items = [], error = "";
+  try { items = (await api("naming?job_id=" + encodeURIComponent(job.id))).items || []; }
+  catch (e) { error = "命名状态暂时不可读取；可继续人工填表。"; }
+  const assistance = new NamingAssistance(job, detail, items, error);
+  return assistance.node;
+}
+
 const comparisonStatuses = {
   confirmed_intent: "人工意图已确认，尚未执行",
   partial: "部分执行，未完整成功",
@@ -1223,7 +1499,7 @@ function renderComparison(record) {
     ),
     el(
       "p",
-      `human · ${time(intent.created_at)} · 任务版本 ${intent.job_version} · 计划版本 ${intent.plan_version}`,
+      `${intent.origin === "model_assisted_human" ? "model_assisted_human · 模型辅助 + 人工终审（不进入纯人工学习）" : intent.origin || "human"} · ${time(intent.created_at)} · 任务版本 ${intent.job_version} · 计划版本 ${intent.plan_version}`,
       "muted",
     ),
     el(
@@ -1641,7 +1917,7 @@ async function rulesView() {
   form.append(samples);
   const preview = el("pre", undefined, "notice");
   preview.hidden = true;
-  let selectedCandidate = null;
+  let selectedCandidate = null, reusedNamingFacts = false;
   let previewGeneration = 0,
     acceptedPreview = null;
   function previewRequest() {
@@ -1688,6 +1964,13 @@ async function rulesView() {
         p = previewGeneration,
         request = previewRequest(),
         snapshot = JSON.stringify(request);
+      const finiteRange = request.rule.episodes || request.rule.absolute;
+      if (reusedNamingFacts && (!request.rule.subscription || !request.rule.aliases.length || !finiteRange ||
+        !Number.isInteger(finiteRange.start) || !Number.isInteger(finiteRange.end) || finiteRange.start < 1 ||
+        finiteRange.end > 999 || finiteRange.end < finiteRange.start)) {
+        fail(new Error("请为复用规则核对订阅来源、完整标题别名及明确有限集数范围（1–999）。"));
+        return;
+      }
       const ownsResponse = () =>
         g === generation &&
         p === previewGeneration &&
@@ -1792,7 +2075,12 @@ async function rulesView() {
     const clues = ruleClues;
     ruleClues = null;
     source.value = clues.source;
-    fields.season.value = "";
+    fields.season.value = clues.organization?.season ?? "";
+    fields.directory.value = clues.organization?.directory ?? "";
+    fields.display_name.value = clues.organization?.display_name ?? "";
+    // 只复用已批准事实；别名与未来有限范围不能由模型结果静默推广。
+    if (clues.organization) { reusedNamingFacts = true; fields.subscription.value = ""; }
+    if (clues.organization) form.prepend(el("p", "从已批准任务带入目录、显示名、季号。请填写并核对稳定系列身份、标题别名及有限集数范围；预览后保存草稿，再单独启用。", "notice"));
     const choose = select(form, "任务来源线索（请选择并核对）", "mapping_context", [
       ["", "选择来源，仅带入订阅和原始标题"],
       ...clues.contexts.map((c, i) => [String(i), c.subscription + " · " + c.title]),
