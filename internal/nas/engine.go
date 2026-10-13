@@ -266,6 +266,9 @@ func (e *Engine) propose(ctx context.Context, id, source, target string) (*Plan,
 	if err = e.bindManualPlan(ctx, j, p); err != nil {
 		return nil, err
 	}
+	if err = e.bindManifest(ctx, j.Sources, p); err != nil {
+		return nil, err
+	}
 	j.Plan = p
 	j.BlockReason = "awaiting_plan_confirmation"
 	j.Import = "needs_confirmation"
@@ -294,6 +297,15 @@ func (e *Engine) confirm(ctx context.Context, id string, version int, digest str
 	}
 	if j.BlockReason == "stale_plan" {
 		return errors.New("stale_plan")
+	}
+	for _, f := range j.Plan.Manifest {
+		fp, err := e.Files.FingerprintContext(ctx, f.Source)
+		if err != nil {
+			return err
+		}
+		if fp != f.Fingerprint {
+			return errors.New("fingerprint_changed")
+		}
 	}
 	for _, f := range j.Plan.Files {
 		fp, err := e.Files.FingerprintContext(ctx, f.Source)

@@ -107,7 +107,7 @@ func publicError(err error) string {
 		return ""
 	}
 	code := err.Error()
-	for _, v := range strings.Fields(`stale_version stale_plan plan_frozen invalid_job_state fingerprint_changed conflict cross_device permission_denied target_reserved unsafe_path unknown_source invalid_subscription subscription_limit subscription_history_limit subscription_exists subscription_not_found subscription_frozen profile_unavailable rule_invalid rule_invalid_range rule_not_normalized rule_revision_exists rule_not_found series_order_conflict rule_disabled rule_scope_ambiguous title_file_conflict season_conflict absolute_mapping_unresolved source_mapping_unresolved mapping_conflict rule_normalization_unresolved collection_incomplete collection_preview_only episode_unresolved special_episode unsupported_manifest awaiting_plan_confirmation legacy_evidence_unresolved source_disabled invalid_request library_unavailable library_unsafe_path library_read_failed library_limit library_cancelled library_changed candidate_stale`) {
+	for _, v := range strings.Fields(`stale_version stale_plan plan_frozen invalid_job_state fingerprint_changed conflict cross_device permission_denied target_reserved unsafe_path unknown_source invalid_subscription subscription_limit subscription_history_limit subscription_exists subscription_not_found subscription_frozen profile_unavailable rule_invalid rule_invalid_range rule_not_normalized rule_revision_exists rule_not_found series_order_conflict rule_disabled rule_scope_ambiguous title_file_conflict season_conflict absolute_mapping_unresolved source_mapping_unresolved mapping_conflict rule_normalization_unresolved collection_incomplete collection_preview_only episode_unresolved special_episode unsupported_manifest awaiting_plan_confirmation legacy_evidence_unresolved source_disabled invalid_request library_unavailable library_unsafe_path library_read_failed library_limit library_cancelled library_changed candidate_stale invalid_batch order_confirmation_required episode_out_of_bounds duplicate_episode invalid_file_manifest collection_preview_only unsupported_episode_kind unsupported_video unsupported_file_set subtitle_mapping_ambiguous episode_unresolved target_conflict comparison_limit`) {
 		if code == v {
 			return v
 		}
@@ -146,12 +146,20 @@ type sourceContext struct {
 	Subscription string `json:"subscription"`
 	Title        string `json:"title"`
 }
+type batchHint struct {
+	Source   string `json:"source"`
+	Season   int    `json:"season"`
+	Relative int    `json:"relative"`
+	Absolute int    `json:"absolute"`
+	Problem  string `json:"problem,omitempty"`
+}
 type jobDetail struct {
-	Job      publicJob       `json:"job"`
-	Digest   string          `json:"digest"`
-	Files    []FileExecution `json:"files"`
-	Ready    bool            `json:"ready"`
-	Contexts []sourceContext `json:"contexts,omitempty"`
+	BatchHints []batchHint     `json:"batch_hints,omitempty"`
+	Job        publicJob       `json:"job"`
+	Digest     string          `json:"digest"`
+	Files      []FileExecution `json:"files"`
+	Ready      bool            `json:"ready"`
+	Contexts   []sourceContext `json:"contexts,omitempty"`
 }
 
 func (m *Management) detail(ctx context.Context, id string) (jobDetail, error) {
@@ -167,6 +175,27 @@ func (m *Management) detail(ctx context.Context, id string) (jobDetail, error) {
 		if err != nil {
 			return v, err
 		}
+	}
+	for _, source := range j.Sources {
+		if !videoTarget(source) {
+			continue
+		}
+		p, err := ParseTitle(source)
+		hint := batchHint{Source: source, Season: p.Season}
+		if err != nil {
+			hint.Problem = publicError(err)
+		} else {
+			if p.Collection {
+				hint.Problem = "collection_preview_only"
+			}
+			if p.Relative != nil {
+				hint.Relative = p.Relative.Start
+			}
+			if p.Absolute != nil {
+				hint.Absolute = p.Absolute.Start
+			}
+		}
+		v.BatchHints = append(v.BatchHints, hint)
 	}
 	// GUID 可以来自秘密 enclosure URL，绝不直接输出 release_context。
 	rows, err := s.db.QueryContext(ctx, "SELECT DISTINCT subscription,title FROM release_context WHERE job_id=? ORDER BY subscription,title LIMIT 100", id)
@@ -254,12 +283,30 @@ func (m *Management) api(w http.ResponseWriter, r *http.Request) {
 				}
 				v.Job.Sources = nil
 				v.Contexts = nil
+				v.BatchHints = nil
 				v.Job.Plan = nil
 				v.Files = nil
 				v.Digest = ""
 				out = append(out, v)
 			}
 			apiJSON(w, map[string]any{"items": out, "next": next})
+			return
+		case "comparisons":
+			after, err := strconv.Atoi(r.URL.Query().Get("after"))
+			if r.URL.Query().Get("after") == "" {
+				after = 0
+				err = nil
+			}
+			if err != nil || after < 0 {
+				apiError(w, 400, "invalid_request")
+				return
+			}
+			items, next, err := s.ComparisonPage(ctx, r.URL.Query().Get("id"), after)
+			if err != nil {
+				apiError(w, 409, publicError(err))
+				return
+			}
+			apiJSON(w, map[string]any{"items": items, "next": next})
 			return
 		case "epoch":
 			v, err := s.NamingEpoch(ctx)
@@ -425,6 +472,26 @@ func (m *Management) api(w http.ResponseWriter, r *http.Request) {
 					apiJSON(w, map[string]any{"decision": decision, "explanation": "仅按此草稿的订阅/别名、显式季号和集数边界解析；启用后仍核对所有来源及清单。"})
 					return
 				}
+			}
+		}
+	case "batch-preview", "batch-confirm":
+		var v struct {
+			ID           string            `json:"id"`
+			Version      int               `json:"version"`
+			PlanVersion  int               `json:"plan_version"`
+			Digest       string            `json:"digest"`
+			Organization BatchOrganization `json:"organization"`
+		}
+		if err = decodeRequest(w, r, &v); err == nil {
+			if path == "batch-preview" {
+				var preview *BatchPreview
+				preview, err = m.Daemon.Engine.BatchPreview(ctx, v.ID, v.Version, v.Organization)
+				if err == nil {
+					apiJSON(w, preview)
+					return
+				}
+			} else {
+				err = m.Daemon.Engine.BatchConfirm(ctx, v.ID, v.Version, v.PlanVersion, v.Digest, v.Organization)
 			}
 		}
 	case "job-action":

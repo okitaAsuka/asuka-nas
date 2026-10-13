@@ -92,7 +92,7 @@ func (s *Store) checkFrozenEvidence(ctx context.Context, j *Job) error {
 		return nil
 	}
 	manual, evidence := p.Manual, p.Evidence
-	if manual == nil && len(evidence) == 0 {
+	if p.Batch == nil && manual == nil && len(evidence) == 0 {
 		var b string
 		err := s.db.QueryRowContext(ctx, "SELECT body FROM legacy_plan_evidence WHERE job_id=? AND plan_version=?", j.ID, p.Version).Scan(&b)
 		if err != nil {
@@ -121,7 +121,7 @@ func (s *Store) checkFrozenEvidence(ctx context.Context, j *Job) error {
 		if known[ContextEvidence{c.Subscription, digestString(c.Title)}] {
 			continue
 		}
-		if !subs[c.Subscription] {
+		if p.Batch != nil || !subs[c.Subscription] {
 			return errors.New("source_mapping_unresolved")
 		}
 		if e = checkManualEvidence(manual, c.Title); e != nil {

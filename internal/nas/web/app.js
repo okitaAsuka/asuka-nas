@@ -60,6 +60,17 @@ const errors = {
   library_cancelled: "目录读取已取消或超时。",
   library_changed: "读取时目录发生变化，请重新读取候选。",
   candidate_stale: "候选或目标目录已变化，请重新读取、选择和预览。",
+  invalid_batch: "请填写安全的相对目录、显示名、季号，并核对编号方式。",
+  order_confirmation_required: "请核对整表的顺序和连续编号，再明确勾选排序确认。",
+  duplicate_episode: "集号重复；请逐行核对，完整任务不能重复目标。",
+  collection_incomplete: "提交必须覆盖此下载任务的全部视频。",
+  comparison_limit: "人工记录或来源证据达到限额；请先安排离线历史治理。",
+  episode_out_of_bounds: "季号为1–99、集号为1–999，偏移为-998至998。",
+  season_conflict: "源文件已有季号与本次季号不一致；混季任务不支持整体改写。",
+  target_conflict: "目标已存在不同文件；不会覆盖，请检查并修改目标。",
+  collection_preview_only: "多集单文件不支持；不能强制改成单集。",
+  unsupported_episode_kind: "特殊篇或非整数编号暂不支持，请人工诊断。",
+  subtitle_mapping_ambiguous: "字幕须同目录同视频stem，支持srt/ass/ssa/vtt及有限语言后缀。",
   stale_plan: "未开始计划已过期：返回任务重新规划；重试不会改动旧计划。",
 };
 function el(tag, text, cls) {
@@ -390,7 +401,7 @@ async function jobView(id) {
     );
   const actions = el("div", undefined, "actions");
   const permanent = ["late_mapping_conflict", "legacy_evidence_unresolved", "unsupported_episode_kind", "special_episode", "unsupported_manifest", "unsupported_video", "unsupported_file_set", "invalid_file_manifest", "subtitle_mapping_ambiguous"].includes(j.block_reason);
-  const retry = writeButton("安全重试", () => action("retry"));
+  const retry = writeButton(j.plan?.started ? "恢复原冻结方案" : "安全重试", () => action("retry"));
   if (permanent) unavailable(retry, "此阻塞需要人工诊断，重试不能解除");
   actions.append(retry);
   if (j.import === "needs_confirmation" && !j.plan?.started && !permanent) {
@@ -462,14 +473,16 @@ async function jobView(id) {
       plan.append(el("p", "冻结规则：" + j.plan.rule_refs.join("，"), "muted"));
   } else
     plan.append(
-      el("p", "尚未生成可执行方案。完整合集需先建立明确的有界规则。", "muted"),
+      el("p", "尚未生成可执行方案。可使用下方批量整理明确本次完整清单。", "muted"),
     );
   root.append(plan);
+  root.append(comparisonPanel(id));
+  if (j.download === "completed" && j.import !== "imported" && !j.plan?.started && !permanent) root.append(batchPanel(j,v));
   if (
     j.download === "completed" &&
     j.import !== "imported" &&
     !j.plan?.started &&
-    !permanent
+    !permanent && (j.sources || []).filter(x => /\.(mkv|mp4)$/i.test(x)).length === 1
   ) {
     const form = panel("人工单集预览");
     form.append(
@@ -503,6 +516,96 @@ async function jobView(id) {
     root.append(form);
   }
   return root;
+}
+function batchPanel(j,v) {
+  const form=panel("批量整理并入库"), grid=el("div",undefined,"grid");
+  form.dataset.batch="true";
+  form.append(el("p","范围为此下载任务的完整清单：mkv/mp4视频；同目录同stem的srt/ass/ssa/vtt字幕自动随视频。辅助文件只绑定指纹；特殊篇、多集单文件、混季和不明确字幕关联不支持。下载源保持原名，媒体库使用硬链接。清单初始顺序仅用于展示。","muted"));
+  const directory=field(grid,"目标媒体相对目录","batch_directory"), display=field(grid,"显示名称","batch_display_name"), season=field(grid,"明确季号","batch_season","","number"),
+    mode=select(grid,"编号方式","batch_mode",[["manual","逐行明确填写"],["extracted","已有明确编号 + 有界偏移"],["sequential","按本表顺序连续编号（需排序确认）"]]),
+    offset=field(grid,"编号偏移（仅提取方式）","batch_offset",0,"number"), start=field(grid,"连续编号首集","batch_start",1,"number");
+  form.append(grid);
+  const orderLabel=el("label","已逐行核对本表顺序与连续编号；该顺序代表本次集序"), order=el("input");order.type="checkbox";order.name="batch_order_confirmed";orderLabel.prepend(order);form.append(orderLabel);
+  const t=table(["原名 / 问题提示","明确集号","拟定视频目标","调整行序"]), output=el("div");output.dataset.batchPreview="true";
+  let rows=(j.sources||[]).filter(s=>/\.(mkv|mp4)$/i.test(s)).map(source=>({source,episode:""})), revision=0, accepted=null, candidateRevision=0;
+  const hint=source=>(v.batch_hints||[]).find(h=>h.source===source)||{};
+  const request=()=>({id:j.id,version:j.version,organization:{directory:directory.value,display_name:display.value,season:Number(season.value),mode:mode.value,offset:mode.value==="extracted"?Number(offset.value):0,start:mode.value==="sequential"?Number(start.value):0,order_confirmed:mode.value==="sequential"&&order.checked,rows:rows.map(r=>({source:r.source,episode:Number(r.episode)}))}});
+  function invalidate() {revision++;accepted=null;output.replaceChildren();unavailable(confirm,"先预览当前整表");message.textContent="";}
+  function target(r) {return `${directory.value}/Season ${String(Number(season.value)).padStart(2,"0")}/${display.value} - S${String(Number(season.value)).padStart(2,"0")}E${String(Number(r.episode)).padStart(2,"0")}${r.source.slice(r.source.lastIndexOf("."))}`;}
+  function render() {
+    t.body.replaceChildren();
+    rows.forEach((r,i)=>{
+      const h=hint(r.source), info=el("div"), ep=el("input"), targetCell=el("span",target(r)), actions=el("div",undefined,"actions");
+      info.append(el("p",r.source,"mono"),el("p",h.problem?(errors[h.problem]||h.problem):`源明确季：${h.season||"未知"}；相对集：${h.relative||"未知"}；总集：${h.absolute||"未知"}`,"muted"));
+      ep.type="number";ep.name="batch_episode";ep.value=r.episode;ep.setAttribute("aria-label",r.source+" 集号");
+      ep.addEventListener("input",()=>{r.episode=ep.value;order.checked=false;invalidate();targetCell.textContent=target(r)});
+      for(const [label,delta] of [["上移",-1],["下移",1]]) {const b=button(label,()=>{const n=i+delta;if(n<0||n>=rows.length)return;[rows[i],rows[n]]=[rows[n],rows[i]];order.checked=false;invalidate();render()});b.disabled=i+delta<0||i+delta>=rows.length;actions.append(b);}
+      row(t.body,[info,ep,targetCell,actions]);
+    });
+  }
+  const confirm=writeButton("确认整表并入库",async()=>{
+    if(busy)return;
+    if(!accepted||accepted.snapshot!==JSON.stringify(request())) {invalidate();fail(new Error("请先预览当前整表，再确认。"));return;}
+    const reviewed=accepted;
+    await mutate(()=>api("batch-confirm",{...reviewed.request,plan_version:reviewed.plan.version,digest:reviewed.digest}));
+  },true);
+  unavailable(confirm,"先预览当前整表");
+  for(const f of [directory,display,season,mode,offset,start]) for(const event of ["input","change"]) f.addEventListener(event,()=>{order.checked=false;invalidate();render()});
+  order.addEventListener("change",invalidate);
+  form.addEventListener("reset",()=>{order.checked=false;invalidate()});
+  form.append(button("提取 / 展示连续编号",()=>{
+    order.checked=false;invalidate();
+    if(mode.value==="manual")return;
+    rows.forEach((r,i)=>{const h=hint(r.source);r.episode=mode.value==="sequential"?Number(start.value)+i:(!h.problem && !(h.relative&&h.absolute) && (h.relative||h.absolute)?Number(h.relative||h.absolute)+Number(offset.value):"")});render();
+  }),t.wrap);
+  form.append(writeButton("预览完整整理表",async()=>{
+    if(busy)return;
+    invalidate();const g=generation,r=revision,req=request(),snapshot=JSON.stringify(req);
+    const owns=()=>g===generation&&r===revision&&snapshot===JSON.stringify(request());
+    setBusy(true);
+    try {
+      const result=await api("batch-preview",req);
+      if(!owns())return;
+      accepted={snapshot,request:req,plan:result.plan,digest:result.digest};
+      confirm.dataset.unavailable="false";
+      const preview=table(["完整原名 → 目标（含字幕）","指纹"]);
+      result.plan.files.forEach(f=>row(preview.body,[f.source+" → "+f.target,f.fingerprint]));
+      output.append(el("p",`方案 v${result.plan.version} · 共 ${result.plan.manifest.length} 个源文件指纹 / ${result.plan.files.length} 个入库文件。此预览尚未写媒体或生成对比记录。`,"notice"),preview.wrap);
+    }catch(e){if(owns())fail(e)}finally{setBusy(false)}
+  },true),confirm,button("取消本次预览",()=>{invalidate();candidateRevision++;order.checked=false}),output);
+  const candidate=el("div");
+  form.append(writeButton("读取所填目录 / NFO 候选",async()=>{
+    if(busy)return;
+    const g=generation,c=++candidateRevision,dir=directory.value;setBusy(true);candidate.replaceChildren();
+    const owns=()=>g===generation&&c===candidateRevision&&dir===directory.value;
+    try {const result=await api("library-candidates",{directory:dir});if(!owns())return;
+      result.candidates.forEach(c=>candidate.append(button(`填入候选：${c.display_name||"名称未知"} / 季${c.season||"未知"}`,()=>{
+        if(!owns())return;order.checked=false;invalidate();display.value=c.display_name;season.value=c.conflicts.length?"":c.season||"";render();
+      })));
+      candidate.append(el("p","候选仅减少填表；请明确核对本次篇章季号和每集编号，再整表预览、人工确认。","muted"));
+    }catch(e){if(owns())fail(e)}finally{setBusy(false)}
+  }),candidate);
+  render();return form;
+}
+function comparisonPanel(id) {
+  const p=panel("人工对比记录"),output=el("div");let after=0,readRevision=0;
+  const status={confirmed_intent:"人工意图已确认，尚未执行",partial:"部分执行，未完整成功",awaiting_discovery:"全部硬链接，等待全部 Emby 确认",complete:"整包完成",superseded:"原方案已被替换，未计完整成功"};
+  const read=button("查看对比记录",async()=>{
+    const g=generation,r=++readRevision;
+    try {const data=await api(`comparisons?id=${encodeURIComponent(id)}&after=${after}`);if(g!==generation||r!==readRevision)return;
+      if(!after)output.replaceChildren();
+      data.items.forEach(v=>{
+        const r=v.intent,section=panel(`人工记录 ${r.plan_version} · ${status[v.status]||v.status}`);
+        section.append(el("p",`${r.sample_id} · human · ${time(r.created_at)} · job v${r.job_version} / plan v${r.plan_version}`,"mono"));
+        const t=table(["原名 → 目标","明确季集 / 人工改动","实际执行 / 发现"]);
+        r.changes.forEach((c,i)=>{const f=v.files.find(f=>f.Index===i);row(t.body,[c.source+" → "+c.target,`S${c.season}E${c.episode} / ${c.changed_fields.join("、")}`,(states[f?.State]||f?.State||"尚未执行")+(f?.Video?(f.Discovered?" / 已发现":" / 未发现"):" / 字幕")])});
+        if(v.error_code)section.append(el("p",errors[v.error_code]||v.error_code,"notice"));section.append(t.wrap);output.append(section);
+      });
+      if(!data.items.length)output.append(el("p","没有已确认的人工记录；预览或取消不会生成样本。","muted"));
+      after=data.next;read.textContent=after?"读取后续对比记录":"重新读取对比记录";
+    }catch(e){if(g===generation&&r===readRevision)fail(e)}
+  });
+  p.append(el("p","不可变记录保存人工意图；执行与发现显示原计划的持久事实。部分失败不会标成完整成功。后续 agent 学习尚未实现，候选规则必须人工终审。每页最多20份。","muted"),read,output);return p;
 }
 async function subscriptionsView() {
   const data = await api(

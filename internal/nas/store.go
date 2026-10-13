@@ -42,6 +42,7 @@ type Job struct {
 
 // Plan 在确认时冻结全部文件，版本或指纹变化即失效。
 type Plan struct {
+	Batch          *BatchOrganization        `json:"batch,omitempty"`
 	Manual         *ManualSemantics          `json:"manual,omitempty"`
 	Evidence       []ContextEvidence         `json:"evidence,omitempty"`
 	Collection     bool                      `json:"collection,omitempty"`
@@ -108,7 +109,7 @@ func OpenStore(path string) (*Store, error) {
 		db.Close()
 		return nil, e
 	}
-	if schema > 5 {
+	if schema > 6 {
 		db.Close()
 		return nil, errors.New("unsupported_schema_version")
 	}
@@ -149,12 +150,15 @@ func OpenStore(path string) (*Store, error) {
  `
 	}
 	migration += "CREATE TABLE IF NOT EXISTS legacy_plan_evidence(job_id TEXT NOT NULL REFERENCES jobs(id),plan_version INTEGER NOT NULL,body TEXT NOT NULL,PRIMARY KEY(job_id,plan_version));"
+	migration += `CREATE TABLE IF NOT EXISTS comparison_records(job_id TEXT NOT NULL REFERENCES jobs(id),plan_version INTEGER NOT NULL,body TEXT NOT NULL,PRIMARY KEY(job_id,plan_version));
+ CREATE TRIGGER IF NOT EXISTS comparison_no_update BEFORE UPDATE ON comparison_records BEGIN SELECT RAISE(ABORT,'immutable_comparison'); END;
+ CREATE TRIGGER IF NOT EXISTS comparison_no_delete BEFORE DELETE ON comparison_records BEGIN SELECT RAISE(ABORT,'immutable_comparison'); END;`
 	_, e = tx.Exec(migration)
 	if e == nil && schema < 5 {
 		e = migratePlansTx(context.Background(), tx)
 	}
 	if e == nil {
-		_, e = tx.Exec("PRAGMA user_version=5")
+		_, e = tx.Exec("PRAGMA user_version=6")
 	}
 	if e == nil {
 		e = tx.Commit()
@@ -263,7 +267,7 @@ func (s *Store) save(ctx context.Context, j *Job, kind string, index *int) error
 		return e
 	}
 	defer tx.Rollback()
-	if kind == "import_started" && j.Plan != nil {
+	if (kind == "import_started" || kind == "batch_confirmed") && j.Plan != nil {
 		var epoch int64
 		if e = tx.QueryRowContext(ctx, "SELECT value FROM naming_epoch WHERE id=1").Scan(&epoch); e != nil {
 			return e
@@ -282,7 +286,7 @@ func (s *Store) save(ctx context.Context, j *Job, kind string, index *int) error
 			return e
 		}
 	}
-	if kind == "plan_ready" && j.Plan != nil {
+	if (kind == "plan_ready" || kind == "batch_confirmed") && j.Plan != nil {
 		var oldBody string
 		if e = tx.QueryRowContext(ctx, "SELECT body FROM jobs WHERE id=?", j.ID).Scan(&oldBody); e != nil {
 			return e
@@ -305,6 +309,11 @@ func (s *Store) save(ctx context.Context, j *Job, kind string, index *int) error
 			return err
 		}
 		if _, e = tx.ExecContext(ctx, "INSERT INTO plan_history VALUES(?,?,?)", j.ID, j.Plan.Version, string(b)); e != nil {
+			return e
+		}
+	}
+	if kind == "plan_confirmed" || kind == "batch_confirmed" {
+		if e = recordComparisonTx(ctx, tx, j); e != nil {
 			return e
 		}
 	}
