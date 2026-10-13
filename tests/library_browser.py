@@ -41,6 +41,17 @@ with sync_playwright() as p:
     page.locator('[name=aliases]').fill('Example Arc')
     page.get_by_role('button', name='预览命名', exact=True).click()
     expect(page.get_by_role('button', name='保存草稿版本')).to_be_enabled()
+    # The selected-directory field also belongs to the complete save snapshot, even without an input event.
+    page.locator('[name=library_directory]').evaluate('(e)=>e.value="SilentChange"')
+    page.get_by_role('button', name='保存草稿版本').click()
+    expect(page.locator('#message')).to_contain_text('请先预览当前规则及示例')
+    expect(page.get_by_role('button', name='保存草稿版本')).to_be_disabled()
+    page.locator('[name=library_directory]').fill('Example')
+    page.get_by_role('button', name='读取目录候选').click()
+    expect(page.get_by_role('button', name='选入规则草稿')).to_be_visible()
+    page.get_by_role('button', name='选入规则草稿').click()
+    page.get_by_role('button', name='预览命名', exact=True).click()
+    expect(page.get_by_role('button', name='保存草稿版本')).to_be_enabled()
     fixture('change-library')
     page.get_by_role('button', name='保存草稿版本').click()
     expect(page.locator('#message')).to_contain_text('候选或目标目录已变化')
@@ -68,6 +79,19 @@ with sync_playwright() as p:
     fixture('discover')
     page.get_by_role('button', name='刷新状态').click()
     expect(page.get_by_text('全部发现 · 已就绪', exact=True)).to_be_visible()
+    # Unsupported evidence offers diagnosis, with no retry/replan/one-file bypass loop.
+    def unsupported_view(route):
+        response = route.fetch()
+        data = response.json()
+        data['job'].update({'import': 'needs_confirmation', 'block_reason': 'unsupported_episode_kind', 'plan': None})
+        route.fulfill(response=response, json=data)
+    page.route('**/api/jobs/*', unsupported_view)
+    page.get_by_role('button', name='刷新状态').click()
+    expect(page.get_by_role('button', name='安全重试')).to_be_disabled()
+    expect(page.get_by_role('button', name='重新规划')).to_be_disabled()
+    assert page.get_by_role('heading', name='人工单集预览').count() == 0
+    assert page.get_by_role('button', name='补充可复用映射规则').count() == 0
+    page.unroute('**/api/jobs/*')
     fixture('next')
     page.get_by_role('button', name='任务与入库', exact=True).click()
     expect(page.get_by_text('已就绪', exact=True)).to_have_count(2)

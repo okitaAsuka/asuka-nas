@@ -42,8 +42,7 @@ const errors = {
     "来源档案已移除；可保留或停用历史订阅，恢复档案后才能启用。",
   operation_busy: "另一项操作仍在执行，请稍后重试。",
   stale_version: "状态已变化，请刷新后重试。",
-  stale_plan: "计划已过期，未开始的计划需重新规划。",
-  plan_frozen: "计划已执行，禁止重排或重命名。请核对旧计划和源文件后重试。",
+  plan_frozen: "计划已执行，目标保持冻结。临时文件或服务问题修正后可恢复；规则不能移动历史文件。",
   fingerprint_changed: "源文件指纹变化，请核对文件。",
   conflict: "目标已存在不同文件；请人工检查，不会覆盖。",
   target_reserved: "目标被另一任务预约，请检查冲突任务。",
@@ -402,8 +401,8 @@ async function jobView(id) {
   }
   if (permanent) p.append(el("p", "此阻塞不能通过重复重试或新规则强制通过。请核对完整清单/冻结来源证据，修正源数据或部署问题；本版没有历史迁移或强制批准工具，做种到期停止仍独立执行。", "notice"));
   const replan = writeButton("重新规划", () => action("replan"));
-  if (j.plan?.started || j.import === "imported")
-    unavailable(replan, "已执行计划保持冻结");
+  if (j.plan?.started || j.import === "imported" || permanent)
+    unavailable(replan, permanent ? "此阻塞需人工诊断，重新规划不能解除" : "已执行计划保持冻结");
   actions.append(replan);
   p.append(
     actions,
@@ -469,7 +468,8 @@ async function jobView(id) {
   if (
     j.download === "completed" &&
     j.import !== "imported" &&
-    !j.plan?.started
+    !j.plan?.started &&
+    !permanent
   ) {
     const form = panel("人工单集预览");
     form.append(
@@ -796,7 +796,7 @@ async function rulesView() {
   let previewGeneration = 0,
     acceptedPreview = null;
   function previewRequest() {
-    return { rule: rule(), title: title.value, source: source.value, ...(selectedCandidate || {}) };
+    return { rule: rule(), title: title.value, source: source.value, ...(selectedCandidate ? { ...selectedCandidate, directory: libraryDirectory.value } : {}) };
   }
   // 程序化载入也必须失效；完整快照再校验，防止没有 input 事件的替换。
   function invalidatePreview() {
@@ -851,7 +851,7 @@ async function rulesView() {
             snapshot,
             rule: request.rule,
             revision: request.rule.revision,
-            candidate: selectedCandidate ? { ...selectedCandidate } : null,
+            candidate: selectedCandidate ? { directory: request.directory, digest: request.digest } : null,
           };
           saveDraft.dataset.unavailable = "false";
           preview.hidden = false;
