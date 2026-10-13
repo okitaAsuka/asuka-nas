@@ -18,7 +18,7 @@ class PackagingTest(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name) / 'repo'
         self.root.mkdir()
-        for name in ('Dockerfile', 'go.mod', 'go.sum', 'cmd/main.go', 'internal/web/app.js',
+        for name in ('Dockerfile', 'Dockerfile.offline', 'go.mod', 'go.sum', 'cmd/main.go', 'internal/web/app.js',
                      'deploy/offline/compose.yaml', 'deploy/offline/config.template.json',
                      'deploy/offline/credentials.env.template', 'docs/PACKAGING.md'):
             target = self.root / name
@@ -98,6 +98,18 @@ class PackagingTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.package()
         self.assertEqual(self.calls, [])
+
+    def test_explicit_offline_cache_and_invalid_cache(self):
+        self.env['MODULE_CACHE'] = str(self.root)
+        with self.assertRaises(ValueError):
+            self.package()
+        cache = Path(self.temp.name) / 'cache' / 'download'
+        cache.mkdir(parents=True)
+        self.env['MODULE_CACHE'] = str(cache)
+        self.package()
+        build = next(call for call in self.calls if call[1] == 'build')
+        self.assertIn('--build-context', build)
+        self.assertIn(f'module-cache={cache}', build)
 
     def test_output_parent_rejected(self):
         for path in (self.root, self.root.parent, '/'):
