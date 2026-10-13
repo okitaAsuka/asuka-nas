@@ -34,6 +34,7 @@ class PackagingTest(unittest.TestCase):
         self.calls = []
         self.fail = None
         self.platform = 'amd64'
+        self.empty_save = False
         self.real_run = pkg.run
         self.real_capture = pkg.capture
 
@@ -51,7 +52,7 @@ class PackagingTest(unittest.TestCase):
             self.assertEqual(sorted(str(p.relative_to(context)) for p in context.rglob('*') if p.is_file()),
                              ['Dockerfile', 'cmd/main.go', 'go.mod', 'go.sum', 'internal/web/app.js'])
         if args[1] == 'save':
-            Path(args[3]).write_bytes(b'fixture Docker image tar')
+            Path(args[3]).write_bytes(b'' if self.empty_save else b'fixture Docker image tar')
 
     def fake_capture(self, args):
         if args[0] != 'docker':
@@ -121,6 +122,12 @@ class PackagingTest(unittest.TestCase):
                 self.package()
             self.assertEqual(list(self.output.iterdir()), [keep])
             self.assertEqual(keep.read_text(), 'keep')
+
+    def test_empty_save_rejected(self):
+        self.empty_save = True
+        with self.assertRaises(ValueError):
+            self.package()
+        self.assertFalse(list(self.output.iterdir()))
 
     def test_wrong_platform_rejected(self):
         self.platform = 'arm64'
