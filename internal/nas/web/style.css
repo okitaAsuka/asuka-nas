@@ -502,15 +502,42 @@ summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 }
 
 /* 建议审核沿用工作台变量，先展示依据，再呈现草稿与人工终审。 */
-.proposal-list, .proposal-review > .panel { border-top: 3px solid var(--accent); }
-.proposal-sample { border-top: 1px solid var(--line); padding-top: var(--space-3); margin-top: var(--space-4); }
-.proposal-trial .review-pages { margin: var(--space-4) 0; }
-.proposal-review .order-approval { margin-bottom: var(--space-3); }
-.proposal-review h3, .proposal-list strong { overflow-wrap: anywhere; }
-.proposal-review .mono { word-break: break-word; }
-.proposal-review .batch-status:focus { outline: 2px solid var(--focus); outline-offset: 2px; }
+.proposal-list,
+.proposal-review > .panel {
+  border-top: 3px solid var(--accent);
+}
+.proposal-sample {
+  border-top: 1px solid var(--line);
+  padding-top: var(--space-3);
+  margin-top: var(--space-4);
+}
+.proposal-trial .review-pages {
+  margin: var(--space-4) 0;
+}
+.proposal-review .order-approval {
+  margin-bottom: var(--space-3);
+}
+.proposal-review h3,
+.proposal-list strong {
+  overflow-wrap: anywhere;
+}
+.proposal-review .mono {
+  word-break: break-word;
+}
+.proposal-review .batch-status:focus {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
 @media (max-width: 650px) {
-  .proposal-review .actions button { flex: 1 1 145px; }
-  .review-pages .actions { align-items: center; }
-  .review-pages .actions .muted { width: 100%; text-align: center; order: -1; }
+  .proposal-review .actions button {
+    flex: 1 1 145px;
+  }
+  .review-pages .actions {
+    align-items: center;
+  }
+  .review-pages .actions .muted {
+    width: 100%;
+    text-align: center;
+    order: -1;
+  }
 }

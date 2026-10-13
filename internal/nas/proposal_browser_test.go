@@ -42,6 +42,7 @@ func TestRuleProposalBrowserLoop(t *testing.T) {
 		}
 		res.Body.Close()
 		model.Close()
+		modeled.Uncertainties = append(modeled.Uncertainties, "<img src=x onerror=window.PWNED=1>")
 		body, _ := json.Marshal(modeled)
 		req := httptest.NewRequest("POST", "http://127.0.0.1:8789/v1/learning/proposals", strings.NewReader(string(body)))
 		req.Header.Set("Authorization", "Bearer fixture-learning-token-01234567890123456789")

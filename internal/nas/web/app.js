@@ -1903,17 +1903,23 @@ async function healthView() {
 }
 // 候选审核复用安全DOM、单写门与快照门；浏览器只有人工管理身份。
 const proposalStates = {
-  pending: "待人工终审", approved: "已批准 · 规则已启用",
-  rejected: "已拒绝 · 未启用", stale: "已过期 · 不可批准",
+  pending: "待人工终审",
+  approved: "已批准 · 规则已启用",
+  rejected: "已拒绝 · 未启用",
+  stale: "已过期 · 不可批准",
 };
 const proposalErrors = {
   proposal_invalid: "字段不合法。请核对标记字段、名称与说明；草稿已保留。",
-  proposal_unbounded: "范围必须有限且有依据；不能自行外推未来篇章。草稿已保留。",
-  proposal_evidence_conflict: "规则与人工依据矛盾，请对照原始记录修正。草稿已保留。",
+  proposal_unbounded:
+    "范围必须有限且有依据；不能自行外推未来篇章。草稿已保留。",
+  proposal_evidence_conflict:
+    "规则与人工依据矛盾，请对照原始记录修正。草稿已保留。",
   proposal_stale: "候选已过期。请重新读取详情，旧试算不能批准。",
   sample_stale: "人工依据已变化。请重新读取详情，旧试算不能批准。",
-  proposal_trial_stale: "规则环境或试算摘要已变化。请重新历史试算，不能直接重试批准。",
-  proposal_trial_limit: "试算超过安全限额。请安排依据或规则治理，不能省略必要依据后批准。",
+  proposal_trial_stale:
+    "规则环境或试算摘要已变化。请重新历史试算，不能直接重试批准。",
+  proposal_trial_limit:
+    "试算超过安全限额。请安排依据或规则治理，不能省略必要依据后批准。",
   proposal_conflict: "试算存在冲突。请核对冲突结果、修正规则并保存新版本。",
   proposal_revision_exists: "新版本已存在。请重新读取候选与历史。草稿已保留。",
   proposal_replay_conflict: "同一依据已有不同候选。请重新读取候选与历史。",
@@ -1921,9 +1927,13 @@ const proposalErrors = {
   proposal_limit: "候选版本已达限额。请安排离线历史治理，不会删除证据。",
 };
 Object.assign(errors, proposalErrors);
-let proposalSelection = null, proposalCursor = 0;
+let proposalSelection = null,
+  proposalCursor = 0;
 function proposalStatus(p) {
-  return badge(proposalStates[p.state] || p.state, p.state === "approved" ? "ok" : "warn");
+  return badge(
+    proposalStates[p.state] || p.state,
+    p.state === "approved" ? "ok" : "warn",
+  );
 }
 function openProposal(id, revision) {
   proposalSelection = { id, revision };
@@ -1931,54 +1941,154 @@ function openProposal(id, revision) {
 }
 function proposalScope(rule) {
   const bound = rule.episodes;
-  return `第 ${rule.season} 季 · 相对集 ${bound ? bound.start + '–' + bound.end : '未声明'} · 订阅 ${rule.subscription} · 字幕组 ${rule.group || '未限定'}${rule.absolute ? ` · 总集 ${rule.absolute.start}–${rule.absolute.end} → 相对首集 ${rule.absolute.relative_start}` : ''}`;
+  return `第 ${rule.season} 季 · 相对集 ${bound ? bound.start + "–" + bound.end : "未声明"} · 订阅 ${rule.subscription} · 字幕组 ${rule.group || "未限定"}${rule.absolute ? ` · 总集 ${rule.absolute.start}–${rule.absolute.end} → 相对首集 ${rule.absolute.relative_start}` : ""}`;
 }
 async function proposalList() {
-  const data = await api('proposals?after=' + proposalCursor);
-  const p = panel('agent 待审建议');
-  p.classList.add('proposal-list');
-  p.append(el('p', '人工改名记录 → agent 归纳候选 → 人工终审。提交候选不会启用规则；批准规则不会立即执行媒体任务。', 'muted'));
-  const t = comparisonTable(['候选 / 版本', '有限适用范围', '审核状态', '操作']);
-  data.items.forEach(v => {
-    const title = el('div');
-    title.append(el('strong', v.input.rule.display_name), el('p', `${v.id} · revision ${v.revision} / version ${v.version}`, 'mono'), el('p', `${v.input.samples.length} 份人工依据 · ${time(v.created_at)}`, 'muted'));
-    fileRow(t.body, [title, proposalScope(v.input.rule), proposalStatus(v), button('审核建议', () => openProposal(v.id, v.revision))], ['候选 / 版本', '有限适用范围', '审核状态', '操作']);
+  const data = await api("proposals?after=" + proposalCursor);
+  const p = panel("agent 待审建议");
+  p.classList.add("proposal-list");
+  p.append(
+    el(
+      "p",
+      "人工改名记录 → agent 归纳候选 → 人工终审。提交候选不会启用规则；批准规则不会立即执行媒体任务。",
+      "muted",
+    ),
+  );
+  const t = comparisonTable([
+    "候选 / 版本",
+    "有限适用范围",
+    "审核状态",
+    "操作",
+  ]);
+  data.items.forEach((v) => {
+    const title = el("div");
+    title.append(
+      el("strong", v.input.rule.display_name),
+      el(
+        "p",
+        `${v.id} · revision ${v.revision} / version ${v.version}`,
+        "mono",
+      ),
+      el(
+        "p",
+        `${v.input.samples.length} 份人工依据 · ${time(v.created_at)}`,
+        "muted",
+      ),
+    );
+    fileRow(
+      t.body,
+      [
+        title,
+        proposalScope(v.input.rule),
+        proposalStatus(v),
+        button("审核建议", () => openProposal(v.id, v.revision)),
+      ],
+      ["候选 / 版本", "有限适用范围", "审核状态", "操作"],
+    );
   });
-  if (!data.items.length) p.append(el('p', '暂无待审建议。只有成功的人工对比才会成为学习依据；agent 离线不影响 NAS。', 'empty'));
+  if (!data.items.length)
+    p.append(
+      el(
+        "p",
+        "暂无待审建议。只有成功的人工对比才会成为学习依据；agent 离线不影响 NAS。",
+        "empty",
+      ),
+    );
   else p.append(t.wrap);
-  const actions = el('div', undefined, 'actions');
-  if (proposalCursor) actions.append(button('建议首页', () => { proposalCursor = 0; load(); }));
-  if (data.next) actions.append(button('下一页建议', () => { proposalCursor = data.next; load(); }));
+  const actions = el("div", undefined, "actions");
+  if (proposalCursor)
+    actions.append(
+      button("建议首页", () => {
+        proposalCursor = 0;
+        load();
+      }),
+    );
+  if (data.next)
+    actions.append(
+      button("下一页建议", () => {
+        proposalCursor = data.next;
+        load();
+      }),
+    );
   p.append(actions);
   return p;
 }
 function textArea(parent, title, name, value) {
-  const label = el('label', title), input = el('textarea');
-  input.name = name; input.value = value; label.append(input); parent.append(label);
+  const label = el("label", title),
+    input = el("textarea");
+  input.name = name;
+  input.value = value;
+  label.append(input);
+  parent.append(label);
   return input;
 }
-function referenceDetails(ref, title = '样本身份与摘要') {
-  const d = el('details');
-  d.append(el('summary', title));
-  for (const [label, value] of [['样本 ID', ref.sample_id], ['计划摘要', ref.digest], ['导出摘要', ref.export_digest]]) d.append(el('p', `${label}：${value}`, 'mono'));
+function referenceDetails(ref, title = "样本身份与摘要") {
+  const d = el("details");
+  d.append(el("summary", title));
+  for (const [label, value] of [
+    ["样本 ID", ref.sample_id],
+    ["计划摘要", ref.digest],
+    ["导出摘要", ref.export_digest],
+  ])
+    d.append(el("p", `${label}：${value}`, "mono"));
   return d;
 }
 function proposalEvidence(samples, state) {
-  const p = panel('1 · 人工原始依据与来源');
-  p.append(el('p', state === 'stale' ? '以下是历史冻结投影；候选已过期，这些记录不能作为当前批准授权。' : '仅从下列成功人工改动归纳。未观察的季号、篇章或来源不能据此推断。', 'notice'));
-  samples.forEach(sample => {
-    const card = el('article', undefined, 'proposal-sample');
-    card.append(el('h3', `任务 ${sample.job_id} · 计划 v${sample.plan_version}`));
-    (sample.contexts || []).forEach(c => card.append(el('p', `订阅：${c.subscription} · 来源标题：${c.title}`, 'source-name')));
-    const t = comparisonTable(['原名 → 人工目标', '原识别 → 人工意图', '人工修改字段']);
-    sample.changes.forEach(c => fileRow(t.body, [
-      filePair(c.source, c.target),
-      `原季 ${c.before_season || '未知'} / 相对集 ${c.before_episode || '未知'} / 总集 ${c.before_absolute || '未知'} → 季 ${c.season} / 集 ${c.episode}`,
-      c.changed_fields.map(x => changedFieldNames[x] || x).join('、'),
-    ], ['原名 → 人工目标', '原识别 → 人工意图', '人工修改字段']));
-    const original = el('details');
-    original.append(el('summary', '查看完整人工对比与实际执行'), comparisonPanel(sample.job_id));
-    card.append(t.wrap, referenceDetails(sample.ref), el('p', `任务版本 ${sample.job_version} · 来源版本 ${sample.context_version} · 解析版本 ${sample.parser_version}`, 'muted'), original);
+  const p = panel("1 · 人工原始依据与来源");
+  p.append(
+    el(
+      "p",
+      state === "stale"
+        ? "以下是历史冻结投影；候选已过期，这些记录不能作为当前批准授权。"
+        : "仅从下列成功人工改动归纳。未观察的季号、篇章或来源不能据此推断。",
+      "notice",
+    ),
+  );
+  samples.forEach((sample) => {
+    const card = el("article", undefined, "proposal-sample");
+    card.append(
+      el("h3", `任务 ${sample.job_id} · 计划 v${sample.plan_version}`),
+    );
+    (sample.contexts || []).forEach((c) =>
+      card.append(
+        el(
+          "p",
+          `订阅：${c.subscription} · 来源标题：${c.title}`,
+          "source-name",
+        ),
+      ),
+    );
+    const t = comparisonTable([
+      "原名 → 人工目标",
+      "原识别 → 人工意图",
+      "人工修改字段",
+    ]);
+    sample.changes.forEach((c) =>
+      fileRow(
+        t.body,
+        [
+          filePair(c.source, c.target),
+          `原季 ${c.before_season || "未知"} / 相对集 ${c.before_episode || "未知"} / 总集 ${c.before_absolute || "未知"} → 季 ${c.season} / 集 ${c.episode}`,
+          c.changed_fields.map((x) => changedFieldNames[x] || x).join("、"),
+        ],
+        ["原名 → 人工目标", "原识别 → 人工意图", "人工修改字段"],
+      ),
+    );
+    const original = el("details");
+    original.append(
+      el("summary", "查看完整人工对比与实际执行"),
+      comparisonPanel(sample.job_id),
+    );
+    card.append(
+      t.wrap,
+      referenceDetails(sample.ref),
+      el(
+        "p",
+        `任务版本 ${sample.job_version} · 来源版本 ${sample.context_version} · 解析版本 ${sample.parser_version}`,
+        "muted",
+      ),
+      original,
+    );
     p.append(card);
   });
   return p;
@@ -1986,205 +2096,638 @@ function proposalEvidence(samples, state) {
 class ProposalEditor {
   constructor(proposal, changed) {
     this.proposal = proposal;
-    this.node = panel('2 · 有限范围与新版本草稿');
-    this.node.dataset.proposalEditor = 'true';
-    const r = proposal.input.rule, grid = el('div', undefined, 'grid'), f = this.fields = {};
-    this.node.append(el('p', '候选 ID、依据集合和旧版本保持不变。保存产生新 revision；保存后须重新历史试算。', 'muted'), el('p', proposalScope(r), 'notice'));
+    this.node = panel("2 · 有限范围与新版本草稿");
+    this.node.dataset.proposalEditor = "true";
+    const r = proposal.input.rule,
+      grid = el("div", undefined, "grid"),
+      f = (this.fields = {});
+    this.node.append(
+      el(
+        "p",
+        "候选 ID、依据集合和旧版本保持不变。保存产生新 revision；保存后须重新历史试算。",
+        "muted",
+      ),
+      el("p", proposalScope(r), "notice"),
+    );
     const defs = [
-      ['系列 ID', 'series_id', r.series_id], ['集序标识', 'order', r.order],
-      ['显示名称', 'display_name', r.display_name], ['媒体库相对目录', 'directory', r.directory],
-      ['目标季号 · 1–99', 'season', r.season, 'number'], ['订阅作用域', 'subscription', r.subscription],
-      ['字幕组 · 可空', 'group', r.group || ''], ['相对起始集', 'start', r.episodes?.start || '', 'number'],
-      ['相对结束集 · 连续最多32集', 'end', r.episodes?.end || '', 'number'],
-      ['总集起始 · 可空', 'absolute_start', r.absolute?.start || '', 'number'],
-      ['总集结束 · 可空', 'absolute_end', r.absolute?.end || '', 'number'],
-      ['总集对应相对首集 · 可空', 'relative_start', r.absolute?.relative_start || '', 'number'],
+      ["系列 ID", "series_id", r.series_id],
+      ["集序标识", "order", r.order],
+      ["显示名称", "display_name", r.display_name],
+      ["媒体库相对目录", "directory", r.directory],
+      ["目标季号 · 1–99", "season", r.season, "number"],
+      ["订阅作用域", "subscription", r.subscription],
+      ["字幕组 · 可空", "group", r.group || ""],
+      ["相对起始集", "start", r.episodes?.start || "", "number"],
+      ["相对结束集 · 连续最多32集", "end", r.episodes?.end || "", "number"],
+      ["总集起始 · 可空", "absolute_start", r.absolute?.start || "", "number"],
+      ["总集结束 · 可空", "absolute_end", r.absolute?.end || "", "number"],
+      [
+        "总集对应相对首集 · 可空",
+        "relative_start",
+        r.absolute?.relative_start || "",
+        "number",
+      ],
     ];
     defs.forEach(([label, name, value, type]) => {
-      f[name] = field(grid, label, 'proposal_' + name, value, type);
-      if (type === 'number') { f[name].min = 1; f[name].max = name === 'season' ? 99 : 999; f[name].step = 1; }
+      f[name] = field(grid, label, "proposal_" + name, value, type);
+      if (type === "number") {
+        f[name].min = 1;
+        f[name].max = name === "season" ? 99 : 999;
+        f[name].step = 1;
+      }
     });
     this.node.append(grid);
     for (const [label, name, value] of [
-      ['标题别名 · 每行一个，最多8个', 'aliases', r.aliases.join('\n')],
-      ['归纳理由 · 应说明哪些人工改动支持此规则', 'explanation', proposal.input.explanation],
-      ['不能外推 / 不确定性 · 每行一条', 'uncertainties', (proposal.input.uncertainties || []).join('\n')],
-      ['例外 · 每行一条', 'exceptions', (proposal.input.exceptions || []).join('\n')],
-    ]) f[name] = textArea(this.node, label, 'proposal_' + name, value);
-    const scope = el('div', undefined, 'proposal-scope-declaration');
-    this.scopeCheck = el('input'); this.scopeCheck.type = 'checkbox'; this.scopeCheck.name = 'proposal_scope_declaration'; this.scopeCheck.checked = !!proposal.scope_declaration;
-    const scopeLabel = el('label', undefined, 'order-approval');
-    scopeLabel.append(this.scopeCheck, el('span', '人工声明有限适用范围 · 包含尚未验证的集数。仅我明确声明，agent 不能自行扩大范围。'));
-    f.scope_reason = textArea(scope, '人工范围声明理由 · 说明为何适用未验证集数', 'proposal_scope_reason', proposal.scope_declaration?.reason || '');
-    this.node.append(scopeLabel, el('p', '开关启用时，上方相对集数 / 总集映射就是人工声明范围；连续最多32集、季号仍需人工依据。保存后必须重新试算与确认。', 'muted'), scope);
-    this.scopeCheck.addEventListener('change', () => { scope.hidden = !this.scopeCheck.checked; });
+      ["标题别名 · 每行一个，最多8个", "aliases", r.aliases.join("\n")],
+      [
+        "归纳理由 · 应说明哪些人工改动支持此规则",
+        "explanation",
+        proposal.input.explanation,
+      ],
+      [
+        "不能外推 / 不确定性 · 每行一条",
+        "uncertainties",
+        (proposal.input.uncertainties || []).join("\n"),
+      ],
+      [
+        "例外 · 每行一条",
+        "exceptions",
+        (proposal.input.exceptions || []).join("\n"),
+      ],
+    ])
+      f[name] = textArea(this.node, label, "proposal_" + name, value);
+    const scope = el("div", undefined, "proposal-scope-declaration");
+    this.scopeCheck = el("input");
+    this.scopeCheck.type = "checkbox";
+    this.scopeCheck.name = "proposal_scope_declaration";
+    this.scopeCheck.checked = !!proposal.scope_declaration;
+    const scopeLabel = el("label", undefined, "order-approval");
+    scopeLabel.append(
+      this.scopeCheck,
+      el(
+        "span",
+        "人工声明有限适用范围 · 包含尚未验证的集数。仅我明确声明，agent 不能自行扩大范围。",
+      ),
+    );
+    f.scope_reason = textArea(
+      scope,
+      "人工范围声明理由 · 说明为何适用未验证集数",
+      "proposal_scope_reason",
+      proposal.scope_declaration?.reason || "",
+    );
+    this.node.append(
+      scopeLabel,
+      el(
+        "p",
+        "开关启用时，上方相对集数 / 总集映射就是人工声明范围；连续最多32集、季号仍需人工依据。保存后必须重新试算与确认。",
+        "muted",
+      ),
+      scope,
+    );
+    this.scopeCheck.addEventListener("change", () => {
+      scope.hidden = !this.scopeCheck.checked;
+    });
     scope.hidden = !this.scopeCheck.checked;
     this.initial = this.snapshot();
     this.last = this.initial;
-    for (const event of ['input', 'change']) this.node.addEventListener(event, () => {
-      const next = this.snapshot();
-      if (next === this.last) return;
-      this.last = next; changed();
-    });
-    this.node.addEventListener('reset', changed);
-    if (proposal.state !== 'pending') [...Object.values(f), this.scopeCheck].forEach(n => n.disabled = true);
+    for (const event of ["input", "change"])
+      this.node.addEventListener(event, () => {
+        const next = this.snapshot();
+        if (next === this.last) return;
+        this.last = next;
+        changed();
+      });
+    this.node.addEventListener("reset", changed);
+    if (proposal.state !== "pending")
+      [...Object.values(f), this.scopeCheck].forEach(
+        (n) => (n.disabled = true),
+      );
   }
-  snapshot() { return JSON.stringify({ fields: Object.fromEntries(Object.entries(this.fields).map(([k, v]) => [k, v.value])), scope: this.scopeCheck.checked }); }
-  dirty() { return this.snapshot() !== this.initial; }
+  snapshot() {
+    return JSON.stringify({
+      fields: Object.fromEntries(
+        Object.entries(this.fields).map(([k, v]) => [k, v.value]),
+      ),
+      scope: this.scopeCheck.checked,
+    });
+  }
+  dirty() {
+    return this.snapshot() !== this.initial;
+  }
   input() {
-    const f = this.fields, original = this.proposal.input;
+    const f = this.fields,
+      original = this.proposal.input;
     const r = { ...original.rule };
-    for (const k of ['series_id', 'order', 'display_name', 'directory', 'subscription', 'group']) r[k] = f[k].value;
+    for (const k of [
+      "series_id",
+      "order",
+      "display_name",
+      "directory",
+      "subscription",
+      "group",
+    ])
+      r[k] = f[k].value;
     r.season = Number(f.season.value);
-    r.aliases = this.lines('aliases');
+    r.aliases = this.lines("aliases");
     r.episodes = { start: Number(f.start.value), end: Number(f.end.value) };
     delete r.absolute;
-    if (['absolute_start', 'absolute_end', 'relative_start'].some(k => f[k].value)) r.absolute = { start: Number(f.absolute_start.value), end: Number(f.absolute_end.value), relative_start: Number(f.relative_start.value) };
-    return { ...original, rule: r, explanation: f.explanation.value, uncertainties: this.lines('uncertainties'), exceptions: this.lines('exceptions') };
+    if (
+      ["absolute_start", "absolute_end", "relative_start"].some(
+        (k) => f[k].value,
+      )
+    )
+      r.absolute = {
+        start: Number(f.absolute_start.value),
+        end: Number(f.absolute_end.value),
+        relative_start: Number(f.relative_start.value),
+      };
+    return {
+      ...original,
+      rule: r,
+      explanation: f.explanation.value,
+      uncertainties: this.lines("uncertainties"),
+      exceptions: this.lines("exceptions"),
+    };
   }
   declaration() {
     if (!this.scopeCheck.checked) return undefined;
     const r = this.input().rule;
-    return { episodes: r.episodes, reason: this.fields.scope_reason.value, ...(r.absolute ? { absolute: r.absolute } : {}) };
+    return {
+      episodes: r.episodes,
+      reason: this.fields.scope_reason.value,
+      ...(r.absolute ? { absolute: r.absolute } : {}),
+    };
   }
-  lines(k) { return this.fields[k].value.split('\n').map(x => x.trim()).filter(Boolean); }
+  lines(k) {
+    return this.fields[k].value
+      .split("\n")
+      .map((x) => x.trim())
+      .filter(Boolean);
+  }
   validate() {
-    const f = this.fields, input = this.input(), invalid = [];
-    Object.values(f).forEach(n => n.removeAttribute('aria-invalid'));
-    const bytes = value => new TextEncoder().encode(value).length;
-    for (const k of ['series_id', 'order', 'display_name', 'directory', 'subscription', 'explanation']) if (!f[k].value.trim()) invalid.push(k);
-    for (const k of ['season', 'start', 'end']) if (!f[k].value || !f[k].checkValidity()) invalid.push(k);
-    if (input.rule.episodes.end < input.rule.episodes.start || input.rule.episodes.end - input.rule.episodes.start > 31) invalid.push('end');
-    if (input.rule.absolute) for (const k of ['absolute_start', 'absolute_end', 'relative_start']) if (!f[k].value || !f[k].checkValidity()) invalid.push(k);
-    for (const [k, max, count] of [['aliases', 512, 8], ['uncertainties', 512, 8], ['exceptions', 512, 8]]) if (this.lines(k).length > count || (k === 'aliases' && !this.lines(k).length) || this.lines(k).some(x => bytes(x) > max)) invalid.push(k);
-    for (const [k, max] of [['explanation', 2000], ['display_name', 200], ['directory', 512]]) if (bytes(f[k].value) > max) invalid.push(k);
-    if (this.scopeCheck.checked && (!f.scope_reason.value.trim() || bytes(f.scope_reason.value) > 2000)) invalid.push('scope_reason');
+    const f = this.fields,
+      input = this.input(),
+      invalid = [];
+    Object.values(f).forEach((n) => n.removeAttribute("aria-invalid"));
+    const bytes = (value) => new TextEncoder().encode(value).length;
+    for (const k of [
+      "series_id",
+      "order",
+      "display_name",
+      "directory",
+      "subscription",
+      "explanation",
+    ])
+      if (!f[k].value.trim()) invalid.push(k);
+    for (const k of ["season", "start", "end"])
+      if (!f[k].value || !f[k].checkValidity()) invalid.push(k);
+    if (
+      input.rule.episodes.end < input.rule.episodes.start ||
+      input.rule.episodes.end - input.rule.episodes.start > 31
+    )
+      invalid.push("end");
+    if (input.rule.absolute)
+      for (const k of ["absolute_start", "absolute_end", "relative_start"])
+        if (!f[k].value || !f[k].checkValidity()) invalid.push(k);
+    for (const [k, max, count] of [
+      ["aliases", 512, 8],
+      ["uncertainties", 512, 8],
+      ["exceptions", 512, 8],
+    ])
+      if (
+        this.lines(k).length > count ||
+        (k === "aliases" && !this.lines(k).length) ||
+        this.lines(k).some((x) => bytes(x) > max)
+      )
+        invalid.push(k);
+    for (const [k, max] of [
+      ["explanation", 2000],
+      ["display_name", 200],
+      ["directory", 512],
+    ])
+      if (bytes(f[k].value) > max) invalid.push(k);
+    if (
+      this.scopeCheck.checked &&
+      (!f.scope_reason.value.trim() || bytes(f.scope_reason.value) > 2000)
+    )
+      invalid.push("scope_reason");
     if (!invalid.length) return true;
-    invalid.forEach(k => f[k].setAttribute('aria-invalid', 'true'));
+    invalid.forEach((k) => f[k].setAttribute("aria-invalid", "true"));
     f[invalid[0]].focus();
     return false;
   }
 }
 // 大集合逐页呈现，全部依据/结果保留可达；不以JSON替代审核界面。
 function reviewPages(items, headers, render, title) {
-  const node = el('div', undefined, 'review-pages'), t = comparisonTable(headers), actions = el('div', undefined, 'actions'), status = el('span', undefined, 'muted');
+  const node = el("div", undefined, "review-pages"),
+    t = comparisonTable(headers),
+    actions = el("div", undefined, "actions"),
+    status = el("span", undefined, "muted");
   let page = 0;
-  const prev = button('上一页' + title, () => { page--; update(); prev.focus(); }), next = button('下一页' + title, () => { page++; update(); next.focus(); });
+  const prev = button("上一页" + title, () => {
+      page--;
+      update();
+      prev.focus();
+    }),
+    next = button("下一页" + title, () => {
+      page++;
+      update();
+      next.focus();
+    });
   function update() {
     t.body.replaceChildren();
-    items.slice(page * 20, (page + 1) * 20).forEach(item => fileRow(t.body, render(item), headers));
+    items
+      .slice(page * 20, (page + 1) * 20)
+      .forEach((item) => fileRow(t.body, render(item), headers));
     status.textContent = `${items.length} 条 · ${items.length ? page * 20 + 1 : 0}–${Math.min((page + 1) * 20, items.length)}`;
-    prev.disabled = page === 0; next.disabled = (page + 1) * 20 >= items.length;
+    prev.disabled = page === 0;
+    next.disabled = (page + 1) * 20 >= items.length;
   }
-  status.setAttribute('role', 'status'); actions.append(prev, status, next); node.append(t.wrap, actions); update(); return node;
+  status.setAttribute("role", "status");
+  actions.append(prev, status, next);
+  node.append(t.wrap, actions);
+  update();
+  return node;
 }
 function renderProposalTrial(trial) {
-  const node = el('div', undefined, 'proposal-trial');
-  node.append(el('h3', `试算：${trial.results.length} 个结果 · ${trial.conflicts} 个冲突`), el('p', `revision ${trial.revision} / version ${trial.version} · 命名环境 epoch ${trial.epoch} · 历史样本上限 ${trial.limit}`, 'muted'), el('p', trial.truncated ? '覆盖有限：历史集合已截断，只验证下列覆盖记录，不代表全部历史或未来资源。' : '本次仅验证下列覆盖集合；不代表全数据库、真实 NAS 或未来来源。', 'notice'));
+  const node = el("div", undefined, "proposal-trial");
+  node.append(
+    el(
+      "h3",
+      `试算：${trial.results.length} 个结果 · ${trial.conflicts} 个冲突`,
+    ),
+    el(
+      "p",
+      `revision ${trial.revision} / version ${trial.version} · 命名环境 epoch ${trial.epoch} · 历史样本上限 ${trial.limit}`,
+      "muted",
+    ),
+    el(
+      "p",
+      trial.truncated
+        ? "覆盖有限：历史集合已截断，只验证下列覆盖记录，不代表全部历史或未来资源。"
+        : "本次仅验证下列覆盖集合；不代表全数据库、真实 NAS 或未来来源。",
+      "notice",
+    ),
+  );
   if (trial.scope_review) {
-    const scope = trial.scope_review, p = panel('人工声明范围 · 与已验证依据分开');
-    p.append(el('p', `已验证集数 · ${scope.verified_episodes.length} 集：${scope.verified_episodes.join('、') || '无'}`, 'scope-verified'), el('p', `人工声明 · 相对集 ${scope.declared_episodes.start}–${scope.declared_episodes.end}`, 'muted'), el('p', `人工声明但未验证 · ${scope.unverified_episodes.length} 集：${scope.unverified_episodes.join('、') || '无'}`, 'notice'), el('p', '声明理由：' + scope.reason));
-    if (scope.absolute) p.append(el('p', `声明总集 ${scope.absolute.start}–${scope.absolute.end} → 相对首集 ${scope.absolute.relative_start}`));
+    const scope = trial.scope_review,
+      p = panel("人工声明范围 · 与已验证依据分开");
+    p.append(
+      el(
+        "p",
+        `已验证集数 · ${scope.verified_episodes.length} 集：${scope.verified_episodes.join("、") || "无"}`,
+        "scope-verified",
+      ),
+      el(
+        "p",
+        `人工声明 · 相对集 ${scope.declared_episodes.start}–${scope.declared_episodes.end}`,
+        "muted",
+      ),
+      el(
+        "p",
+        `人工声明但未验证 · ${scope.unverified_episodes.length} 集：${scope.unverified_episodes.join("、") || "无"}`,
+        "notice",
+      ),
+      el("p", "声明理由：" + scope.reason),
+    );
+    if (scope.absolute)
+      p.append(
+        el(
+          "p",
+          `声明总集 ${scope.absolute.start}–${scope.absolute.end} → 相对首集 ${scope.absolute.relative_start}`,
+        ),
+      );
     node.append(p);
   }
-  const outcomes = { matched: '匹配', not_matched: '未匹配', out_of_scope: '范围外', conflict: '冲突 · 不可批准' };
-  node.append(reviewPages(trial.results, ['源文件 → 试算目标', '试算结果', '样本 ID'], r => [filePair(r.source, r.target || '无目标'), badge(outcomes[r.outcome] || r.outcome, r.outcome === 'conflict' ? 'warn' : ''), el('span', r.sample_id, 'mono')], '结果'));
-  const coverage = el('details'); coverage.open = true;
-  coverage.append(el('summary', `完整试算覆盖集合 · ${trial.coverage.length} 份样本`), reviewPages(trial.coverage, ['样本 ID', '计划 / 导出摘要'], r => [el('span', r.sample_id, 'mono'), referenceDetails(r, '查看计划与导出摘要')], '覆盖'));
-  node.append(coverage, el('p', '试算摘要：' + trial.digest, 'mono'));
+  const outcomes = {
+    matched: "匹配",
+    not_matched: "未匹配",
+    out_of_scope: "范围外",
+    conflict: "冲突 · 不可批准",
+  };
+  node.append(
+    reviewPages(
+      trial.results,
+      ["源文件 → 试算目标", "试算结果", "样本 ID"],
+      (r) => [
+        filePair(r.source, r.target || "无目标"),
+        badge(
+          outcomes[r.outcome] || r.outcome,
+          r.outcome === "conflict" ? "warn" : "",
+        ),
+        el("span", r.sample_id, "mono"),
+      ],
+      "结果",
+    ),
+  );
+  const coverage = el("details");
+  coverage.open = true;
+  coverage.append(
+    el("summary", `完整试算覆盖集合 · ${trial.coverage.length} 份样本`),
+    reviewPages(
+      trial.coverage,
+      ["样本 ID", "计划 / 导出摘要"],
+      (r) => [
+        el("span", r.sample_id, "mono"),
+        referenceDetails(r, "查看计划与导出摘要"),
+      ],
+      "覆盖",
+    ),
+  );
+  node.append(coverage, el("p", "试算摘要：" + trial.digest, "mono"));
   return node;
 }
 class ProposalReview {
   constructor(proposal) {
     this.proposal = proposal;
-    this.node = el('div');
+    this.node = el("div");
     this.editor = new ProposalEditor(proposal, () => this.invalidate());
-    this.gate = new ReviewedRequestGate(() => JSON.stringify([proposal.id, proposal.revision, proposal.version, this.editor.snapshot()]));
-    this.status = el('p', undefined, 'batch-status'); this.status.dataset.proposalStatus = 'true'; this.status.setAttribute('role', 'status'); this.status.tabIndex = -1;
-    this.output = el('div'); this.output.dataset.proposalTrial = 'true';
-    this.preview = writeButton('历史试算当前版本', () => this.run('preview'));
-    this.save = writeButton('保存为新 revision', () => this.run('revise'));
-    this.approve = writeButton('人工批准并启用规则', () => this.run('approve'), true);
-    this.reject = writeButton('人工拒绝此建议', () => this.run('reject'));
-    this.approvalCheck = el('input'); this.approvalCheck.type = 'checkbox'; this.approvalCheck.name = 'proposal_approval';
-    this.scopeApproval = el('input'); this.scopeApproval.type = 'checkbox'; this.scopeApproval.name = 'proposal_scope_approval';
-    this.scopeApprovalLabel = el('label', undefined, 'order-approval'); this.scopeApprovalLabel.hidden = true;
-    this.scopeApprovalLabel.append(this.scopeApproval, el('span', '我再次确认：人工声明范围包含未验证集数。历史试算没有证明这些集数；我仍明确批准这一有限范围。'));
-    this.rejectionCheck = el('input'); this.rejectionCheck.type = 'checkbox'; this.rejectionCheck.name = 'proposal_rejection';
-    const approveLabel = el('label', undefined, 'order-approval'), rejectLabel = el('label', undefined, 'order-approval');
-    approveLabel.append(this.approvalCheck, el('span', '我已核对人工依据、有限范围及完整试算覆盖；明确批准此版本并启用规则。批准不会执行或迁移媒体文件。'));
-    rejectLabel.append(this.rejectionCheck, el('span', '我明确拒绝此候选；拒绝不会创建或启用规则。'));
-    [this.approvalCheck, this.rejectionCheck, this.scopeApproval].forEach(n => n.addEventListener('change', () => this.sync()));
-    const toolbar = el('div', undefined, 'actions');
-    toolbar.append(this.save, this.preview, button('取消本次审核 / 试算', () => this.invalidate('审核已取消；草稿保留。操作若已送达服务，请重新读取实际状态。')));
-    const decision = panel('4 · 人工终审'), trial = panel('3 · 历史试算');
-    trial.append(el('p', '须先保存当前草稿。冲突非零不能批准；修改、导航、取消和新版本都会使旧试算失效。', 'muted'), this.output);
-    decision.append(approveLabel, this.scopeApprovalLabel, this.approve, rejectLabel, this.reject);
-    this.editor.node.append(toolbar, this.status, button('重新读取候选状态', () => load()));
+    this.gate = new ReviewedRequestGate(() =>
+      JSON.stringify([
+        proposal.id,
+        proposal.revision,
+        proposal.version,
+        this.editor.snapshot(),
+      ]),
+    );
+    this.status = el("p", undefined, "batch-status");
+    this.status.dataset.proposalStatus = "true";
+    this.status.setAttribute("role", "status");
+    this.status.tabIndex = -1;
+    this.output = el("div");
+    this.output.dataset.proposalTrial = "true";
+    this.preview = writeButton("历史试算当前版本", () => this.run("preview"));
+    this.save = writeButton("保存为新 revision", () => this.run("revise"));
+    this.approve = writeButton(
+      "人工批准并启用规则",
+      () => this.run("approve"),
+      true,
+    );
+    this.reject = writeButton("人工拒绝此建议", () => this.run("reject"));
+    this.approvalCheck = el("input");
+    this.approvalCheck.type = "checkbox";
+    this.approvalCheck.name = "proposal_approval";
+    this.scopeApproval = el("input");
+    this.scopeApproval.type = "checkbox";
+    this.scopeApproval.name = "proposal_scope_approval";
+    this.scopeApprovalLabel = el("label", undefined, "order-approval");
+    this.scopeApprovalLabel.hidden = true;
+    this.scopeApprovalLabel.append(
+      this.scopeApproval,
+      el(
+        "span",
+        "我再次确认：人工声明范围包含未验证集数。历史试算没有证明这些集数；我仍明确批准这一有限范围。",
+      ),
+    );
+    this.rejectionCheck = el("input");
+    this.rejectionCheck.type = "checkbox";
+    this.rejectionCheck.name = "proposal_rejection";
+    const approveLabel = el("label", undefined, "order-approval"),
+      rejectLabel = el("label", undefined, "order-approval");
+    approveLabel.append(
+      this.approvalCheck,
+      el(
+        "span",
+        "我已核对人工依据、有限范围及完整试算覆盖；明确批准此版本并启用规则。批准不会执行或迁移媒体文件。",
+      ),
+    );
+    rejectLabel.append(
+      this.rejectionCheck,
+      el("span", "我明确拒绝此候选；拒绝不会创建或启用规则。"),
+    );
+    [this.approvalCheck, this.rejectionCheck, this.scopeApproval].forEach((n) =>
+      n.addEventListener("change", () => this.sync()),
+    );
+    const toolbar = el("div", undefined, "actions");
+    toolbar.append(
+      this.save,
+      this.preview,
+      button("取消本次审核 / 试算", () =>
+        this.invalidate(
+          "审核已取消；草稿保留。操作若已送达服务，请重新读取实际状态。",
+        ),
+      ),
+    );
+    const decision = panel("4 · 人工终审"),
+      trial = panel("3 · 历史试算");
+    trial.append(
+      el(
+        "p",
+        "须先保存当前草稿。冲突非零不能批准；修改、导航、取消和新版本都会使旧试算失效。",
+        "muted",
+      ),
+      this.output,
+    );
+    decision.append(
+      approveLabel,
+      this.scopeApprovalLabel,
+      this.approve,
+      rejectLabel,
+      this.reject,
+    );
+    this.editor.node.append(
+      toolbar,
+      this.status,
+      button("重新读取候选状态", () => load()),
+    );
     this.node.append(this.editor.node, trial, decision);
     this.sync();
   }
-  request() { const p = this.proposal; return { id: p.id, revision: p.revision, version: p.version }; }
+  request() {
+    const p = this.proposal;
+    return { id: p.id, revision: p.revision, version: p.version };
+  }
   sync() {
-    const pending = this.proposal.state === 'pending', dirty = this.editor.dirty(), trial = this.gate.reviewed();
-    for (const [b, allowed] of [[this.save, pending && dirty], [this.preview, pending && !dirty], [this.approve, pending && !dirty && trial && trial.conflicts === 0 && this.approvalCheck.checked && (!trial.scope_review?.unverified_episodes.length || this.scopeApproval.checked)], [this.reject, pending && !dirty && this.rejectionCheck.checked]]) {
-      b.dataset.unavailable = String(!allowed); b.disabled = busy || !allowed;
+    const pending = this.proposal.state === "pending",
+      dirty = this.editor.dirty(),
+      trial = this.gate.reviewed();
+    for (const [b, allowed] of [
+      [this.save, pending && dirty],
+      [this.preview, pending && !dirty],
+      [
+        this.approve,
+        pending &&
+          !dirty &&
+          trial &&
+          trial.conflicts === 0 &&
+          this.approvalCheck.checked &&
+          (!trial.scope_review?.unverified_episodes.length ||
+            this.scopeApproval.checked),
+      ],
+      [this.reject, pending && !dirty && this.rejectionCheck.checked],
+    ]) {
+      b.dataset.unavailable = String(!allowed);
+      b.disabled = busy || !allowed;
     }
   }
-  invalidate(text = '草稿已变化；旧试算失效。请保存新 revision 后重新试算。') {
-    this.gate.invalidate(); this.output.replaceChildren(); this.approvalCheck.checked = false; this.rejectionCheck.checked = false; this.scopeApproval.checked = false; this.scopeApprovalLabel.hidden = true;
-    this.status.className = 'muted batch-status'; this.status.textContent = text; this.sync();
+  invalidate(text = "草稿已变化；旧试算失效。请保存新 revision 后重新试算。") {
+    this.gate.invalidate();
+    this.output.replaceChildren();
+    this.approvalCheck.checked = false;
+    this.rejectionCheck.checked = false;
+    this.scopeApproval.checked = false;
+    this.scopeApprovalLabel.hidden = true;
+    this.status.className = "muted batch-status";
+    this.status.textContent = text;
+    this.sync();
   }
   async run(action) {
-    if (busy || this.proposal.state !== 'pending') return;
-    if (action === 'revise' && !this.editor.validate()) { this.status.className = 'error batch-status'; this.status.textContent = errors.proposal_invalid; return; }
-    if (action !== 'revise' && this.editor.dirty()) { this.invalidate('草稿尚未保存。请先保存新 revision，再重新历史试算。'); return; }
+    if (busy || this.proposal.state !== "pending") return;
+    if (action === "revise" && !this.editor.validate()) {
+      this.status.className = "error batch-status";
+      this.status.textContent = errors.proposal_invalid;
+      return;
+    }
+    if (action !== "revise" && this.editor.dirty()) {
+      this.invalidate("草稿尚未保存。请先保存新 revision，再重新历史试算。");
+      return;
+    }
     const reviewed = this.gate.reviewed();
-    if (action === 'approve' && (!reviewed || reviewed.conflicts || !this.approvalCheck.checked || (reviewed.scope_review?.unverified_episodes.length && !this.scopeApproval.checked))) { this.invalidate('当前版本没有可批准的成功试算。请重新试算并明确人工确认。'); return; }
-    if (action === 'reject' && !this.rejectionCheck.checked) return;
-    if (action === 'preview') this.invalidate('正在试算当前已保存版本…');
-    const ticket = this.gate.begin(), request = this.request();
-    if (action === 'revise') { request.input = this.editor.input(); request.scope_declaration = this.editor.declaration(); }
-    if (action === 'approve') { request.epoch = reviewed.epoch; request.digest = reviewed.digest; }
-    setBusy(true); this.sync();
+    if (
+      action === "approve" &&
+      (!reviewed ||
+        reviewed.conflicts ||
+        !this.approvalCheck.checked ||
+        (reviewed.scope_review?.unverified_episodes.length &&
+          !this.scopeApproval.checked))
+    ) {
+      this.invalidate(
+        "当前版本没有可批准的成功试算。请重新试算并明确人工确认。",
+      );
+      return;
+    }
+    if (action === "reject" && !this.rejectionCheck.checked) return;
+    if (action === "preview") this.invalidate("正在试算当前已保存版本…");
+    const ticket = this.gate.begin(),
+      request = this.request();
+    if (action === "revise") {
+      request.input = this.editor.input();
+      request.scope_declaration = this.editor.declaration();
+    }
+    if (action === "approve") {
+      request.epoch = reviewed.epoch;
+      request.digest = reviewed.digest;
+    }
+    setBusy(true);
+    this.sync();
     try {
-      const result = await api('proposal-' + action, request);
+      const result = await api("proposal-" + action, request);
       if (!ticket.owns()) return;
-      if (action === 'preview') {
-        if (result.id !== request.id || result.revision !== request.revision || result.version !== request.version || !result.digest) throw new Error('proposal_trial_stale');
+      if (action === "preview") {
+        if (
+          result.id !== request.id ||
+          result.revision !== request.revision ||
+          result.version !== request.version ||
+          !result.digest
+        )
+          throw new Error("proposal_trial_stale");
+        if (this.proposal.scope_declaration && !result.scope_review)
+          throw new Error("proposal_trial_stale");
         this.gate.accept(ticket, request, result);
         this.output.replaceChildren(renderProposalTrial(result));
-        this.scopeApprovalLabel.hidden = !result.scope_review?.unverified_episodes.length;
-        this.status.className = 'muted batch-status'; this.status.textContent = result.conflicts ? '试算存在冲突；批准已锁定。请核对并修正。' : '当前版本试算成功。请核对完整覆盖，再明确选择人工终审。';
+        this.scopeApprovalLabel.hidden =
+          !result.scope_review?.unverified_episodes.length;
+        this.status.className = "muted batch-status";
+        this.status.textContent = result.conflicts
+          ? "试算存在冲突；批准已锁定。请核对并修正。"
+          : "当前版本试算成功。请核对完整覆盖，再明确选择人工终审。";
       } else {
         // 写响应仅表示请求完成；读取持久状态再呈现批准/拒绝。
-        const revision = action === 'revise' ? result.revision : request.revision;
-        const actual = await api(`proposal?id=${encodeURIComponent(request.id)}&revision=${revision}`);
+        const revision =
+          action === "revise" ? result.revision : request.revision;
+        const actual = await api(
+          `proposal?id=${encodeURIComponent(request.id)}&revision=${revision}`,
+        );
         if (!ticket.owns()) return;
-        if ((action === 'approve' && actual.state !== 'approved') || (action === 'reject' && actual.state !== 'rejected') || (action === 'revise' && actual.revision <= request.revision)) throw new Error('proposal_stale');
-        proposalSelection = { id: actual.id, revision: actual.revision }; await load();
+        if (
+          (action === "approve" && actual.state !== "approved") ||
+          (action === "reject" && actual.state !== "rejected") ||
+          (action === "revise" && actual.revision <= request.revision)
+        )
+          throw new Error("proposal_stale");
+        proposalSelection = { id: actual.id, revision: actual.revision };
+        await load();
       }
     } catch (e) {
       if (!ticket.owns()) return;
-      this.invalidate(); this.status.className = 'error batch-status'; this.status.textContent = errors[e.message] || e.message; this.status.focus();
-    } finally { setBusy(false); this.sync(); }
+      this.invalidate();
+      this.status.className = "error batch-status";
+      this.status.textContent = errors[e.message] || e.message;
+      this.status.focus();
+    } finally {
+      setBusy(false);
+      this.sync();
+    }
   }
 }
 async function proposalDetail() {
-  const {id, revision} = proposalSelection, query = `id=${encodeURIComponent(id)}&revision=${revision}`;
-  const [proposal, samples, audit] = await Promise.all([api('proposal?' + query), api('proposal-samples?' + query), api('proposal-audit?id=' + encodeURIComponent(id))]);
-  const root = el('div', undefined, 'proposal-review'), p = panel('审核 agent 规则建议');
-  root.append(button('← 返回建议清单', () => { proposalSelection = null; load(); }));
-  p.append(el('h3', proposal.input.rule.display_name), proposalStatus(proposal), el('p', `${id} · revision ${proposal.revision} / version ${proposal.version} · 来源 ${proposal.origin === 'agent' ? 'agent 归纳' : '人工修订'}`, 'mono'), el('p', '候选提交 ≠ 启用规则。人工批准 ≠ 执行媒体。既有冻结文件不会迁移。', 'notice'));
-  p.querySelector('h2').tabIndex = -1; p.querySelector('h2').dataset.reviewHeading = 'true';
-  const history = el('details');
-  history.append(el('summary', `候选审计与版本历史 · 最近 ${audit.items.length} 条`));
-  const kinds = { proposal_agent: 'agent 提交候选', proposal_human: '人工新版本', proposal_submitted: 'agent 提交候选', proposal_revised: '人工保存新版本', proposal_approved: '人工批准并启用', proposal_rejected: '人工拒绝', proposal_stale: '依据或版本过期' };
-  const revisions = [...new Set(audit.items.map(x => x.revision))].sort((a,b) => b-a);
-  const links = el('div', undefined, 'actions'); revisions.forEach(r => links.append(button('查看 revision ' + r, () => openProposal(id, r))));
+  const { id, revision } = proposalSelection,
+    query = `id=${encodeURIComponent(id)}&revision=${revision}`;
+  const [proposal, samples, audit] = await Promise.all([
+    api("proposal?" + query),
+    api("proposal-samples?" + query),
+    api("proposal-audit?id=" + encodeURIComponent(id)),
+  ]);
+  const root = el("div", undefined, "proposal-review"),
+    p = panel("审核 agent 规则建议");
+  root.append(
+    button("← 返回建议清单", () => {
+      proposalSelection = null;
+      load();
+    }),
+  );
+  p.append(
+    el("h3", proposal.input.rule.display_name),
+    proposalStatus(proposal),
+    el(
+      "p",
+      `${id} · revision ${proposal.revision} / version ${proposal.version} · 来源 ${proposal.origin === "agent" ? "agent 归纳" : "人工修订"}`,
+      "mono",
+    ),
+    el(
+      "p",
+      "候选提交 ≠ 启用规则。人工批准 ≠ 执行媒体。既有冻结文件不会迁移。",
+      "notice",
+    ),
+  );
+  p.querySelector("h2").tabIndex = -1;
+  p.querySelector("h2").dataset.reviewHeading = "true";
+  const history = el("details");
+  history.append(
+    el("summary", `候选审计与版本历史 · 最近 ${audit.items.length} 条`),
+  );
+  const kinds = {
+    proposal_agent: "agent 提交候选",
+    proposal_human: "人工新版本",
+    proposal_submitted: "agent 提交候选",
+    proposal_revised: "人工保存新版本",
+    proposal_approved: "人工批准并启用",
+    proposal_rejected: "人工拒绝",
+    proposal_stale: "依据或版本过期",
+  };
+  const revisions = [...new Set(audit.items.map((x) => x.revision))].sort(
+    (a, b) => b - a,
+  );
+  const links = el("div", undefined, "actions");
+  revisions.forEach((r) =>
+    links.append(button("查看 revision " + r, () => openProposal(id, r))),
+  );
   history.append(links);
-  audit.items.forEach(a => history.append(el('p', `#${a.seq} · revision ${a.revision} · ${kinds[a.kind] || a.kind} · ${time(a.created_at)}`, 'muted')));
-  p.append(history); root.append(p, proposalEvidence(samples.items, proposal.state), new ProposalReview(proposal).node);
+  audit.items.forEach((a) =>
+    history.append(
+      el(
+        "p",
+        `#${a.seq} · revision ${a.revision} · ${kinds[a.kind] || a.kind} · ${time(a.created_at)}`,
+        "muted",
+      ),
+    ),
+  );
+  p.append(history);
+  root.append(
+    p,
+    proposalEvidence(samples.items, proposal.state),
+    new ProposalReview(proposal).node,
+  );
   return root;
 }
 

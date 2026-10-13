@@ -38,6 +38,9 @@ with sync_playwright() as p:
     expect(page.get_by_text('整包完成', exact=True)).to_be_visible()
     expect(page.get_by_text('原识别：季 未声明 · 相对集 1 · 总集 未声明', exact=True)).to_be_visible()
     expect(approve).to_be_disabled()
+    assert '<img' in page.locator('[name=proposal_uncertainties]').input_value()
+    assert page.locator('.proposal-review img, .proposal-review script').count() == 0
+    assert page.evaluate('window.PWNED') is None
     # Actual successes and backend version errors delivered after context changes.
     for outcome in ['success', 'error']:
         for change in ['input', 'silent', 'cancel', 'navigate', 'candidate']:
@@ -121,7 +124,16 @@ with sync_playwright() as p:
     page.screenshot(path='/tmp/asuka-rule-review-mobile.png', full_page=True)
     expect(page.locator('[name=proposal_explanation]')).to_be_visible()
     page.set_viewport_size({'width':1440,'height':1100})
-    posts.clear(); approve.evaluate('(b)=>{b.click();b.click()}')
+    posts.clear(); held_approval=[]
+    page.route('**/api/proposal-approve',lambda route:held_approval.append(route))
+    approve.evaluate('(b)=>{b.click();b.click()}')
+    page.wait_for_timeout(60); assert len(held_approval)==1
+    page.get_by_role('button',name='取消本次审核 / 试算').click()
+    response=held_approval[0].fetch(); assert response.status==200
+    held_approval[0].fulfill(response=response); page.unroute('**/api/proposal-approve'); page.wait_for_timeout(80)
+    expect(status).to_contain_text('审核已取消'); expect(approve).to_be_disabled()
+    assert page.get_by_text('已批准 · 规则已启用',exact=True).count()==0
+    page.get_by_role('button',name='重新读取候选状态').click()
     expect(page.get_by_text('已批准 · 规则已启用', exact=True)).to_be_visible()
     assert len([x for x in posts if x.endswith('/proposal-approve')]) == 1
     expect(approve).to_be_disabled()
