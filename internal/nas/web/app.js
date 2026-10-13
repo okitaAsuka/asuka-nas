@@ -896,7 +896,13 @@ async function rulesView() {
       if (!owns()) return;
       result.candidates.forEach(c => {
         const item = panel(c.season ? `已有证据：第 ${c.season} 季` : "季号未知"),
-          info = el("pre", JSON.stringify({ display_name: c.display_name, episodes: c.episodes, sources: c.sources, conflicts: c.conflicts, unknown: c.unknown }, null, 2), "notice");
+          info = el("pre", JSON.stringify({
+            "名称": c.display_name || "未知，请填写",
+            "已有相对集": c.episodes,
+            "来源": c.sources.map(e => ({ "路径": e.source, "类型": ({filename:"已有文件名", episode_nfo:"集级 NFO", series_nfo:"系列 NFO"})[e.kind], "季": e.season || "未知", "集": e.episode || "未知", "总集": e.absolute || "未知" })),
+            "冲突": c.conflicts.map(x => x.replace("invalid_nfo", "NFO 无效或不支持，需人工检查").replace("display_name_conflict", "来源名称互相矛盾，需明确名称").replace("absolute_episode_conflict", "总集与相对集配对互相矛盾").replace("episode_conflict", "文件名与 NFO 季集互相矛盾")),
+            "待补": c.unknown.map(x => ({subscription_and_alias_require_selection:"请选择订阅并填写本次完整 RSS 别名", arc_season_requires_confirmation:"确认本次篇章季号；不能据前季外推", episode_order_requires_confirmation:"确认本地集序标识", season_unknown:"季号未知，请明确填写", display_name_unknown:"显示名称未知，请明确填写", absolute_mapping_unknown:"总集映射未知；有需要时明确有限范围"})[x] || x),
+          }, null, 2), "notice");
         item.append(info, button("选入规则草稿", () => {
           if (!owns()) return;
           invalidatePreview();

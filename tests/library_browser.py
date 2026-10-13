@@ -30,8 +30,8 @@ with sync_playwright() as p:
     page.get_by_role('button', name='读取目录候选').evaluate('(b)=>{b.click();b.click()}')
     expect(page.get_by_role('button', name='选入规则草稿')).to_be_visible()
     assert len(scans) == 1, scans
-    evidence = page.locator('pre').last.inner_text()
-    assert 'episode_nfo' in evidence and 'filename' in evidence and '67' in evidence
+    evidence = page.locator('pre').filter(has_text='集级 NFO').inner_text()
+    assert '集级 NFO' in evidence and '已有文件名' in evidence and '67' in evidence
     page.get_by_role('button', name='选入规则草稿').click()
     expect(page.locator('[name=directory]')).to_have_value('Example')
     expect(page.locator('[name=display_name]')).to_have_value('Example')
