@@ -11,7 +11,7 @@ Go 1.26.9、依赖、嵌入 UI 均在 Docker 构建阶段完成；NAS 无需 Go/
 Docker 基础镜像标签与依赖下载需要网络；“离线”指交付包在 NAS 导入运行不拉镜像。
 这是可重复的操作步骤，不承诺跨时间字节一致（基础镜像 tag 未固定 digest）。
 
-Windows：安装 WSL2 Ubuntu 与 Docker Desktop，开启该发行版的 WSL integration；
+Windows：安装 WSL2 Ubuntu 24.04（Python 3.12）与 Docker Desktop，开启该发行版的 WSL integration；
 在 WSL 终端安装 `sudo apt-get install git make python3`，将仓库 clone 到 WSL 的 `~/src`，
 执行 `docker info` 确认 Linux daemon 可用。无需在 Windows 安装 Go/npm。
 
