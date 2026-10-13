@@ -207,11 +207,16 @@ func (e *Engine) PreviewNaming(ctx context.Context, id string, version int, over
 			return nil, err
 		}
 	}
-	preview, err := e.batchPreview(ctx, v.Snapshot.JobID, v.Snapshot.JobVersion, b)
+	current, err := e.Store.Get(ctx, v.Snapshot.JobID)
+	if err != nil {
+		return nil, err
+	}
+	preview, err := e.batchPreview(ctx, v.Snapshot.JobID, current.Version, b)
 	if err != nil {
 		return nil, err
 	}
 	preview.Plan.Assistance = &AssistanceRef{v.ID, v.Snapshot.Digest, v.ResultDigest}
+	preview.Plan.NamingReview = true
 	preview.Digest = PlanDigest(preview.Plan)
 	body, _ := json.Marshal(preview)
 	tx, err := e.Store.db.BeginTx(ctx, nil)
@@ -221,6 +226,13 @@ func (e *Engine) PreviewNaming(ctx context.Context, id string, version int, over
 	defer tx.Rollback()
 	if err = namingCurrentTx(ctx, tx, v.Snapshot); err != nil {
 		return nil, err
+	}
+	var jobVersion int
+	if err = tx.QueryRowContext(ctx, `SELECT version FROM jobs WHERE id=?`, v.Snapshot.JobID).Scan(&jobVersion); err != nil {
+		return nil, err
+	}
+	if jobVersion != preview.JobVersion {
+		return nil, errors.New("stale_version")
 	}
 	res, err := tx.ExecContext(ctx, `UPDATE naming_requests SET preview=? WHERE id=? AND version=? AND state IN ('suggested','unresolved')`, string(body), id, version)
 	if err != nil {
@@ -265,6 +277,7 @@ func (e *Engine) ConfirmNaming(ctx context.Context, id string, version int, dige
 		return err
 	}
 	p.Assistance = &AssistanceRef{v.ID, v.Snapshot.Digest, v.ResultDigest}
+	p.NamingReview = true
 	if PlanDigest(p) != digest {
 		return errors.New("stale_plan")
 	}
@@ -315,7 +328,7 @@ func (e *Engine) RejectNaming(ctx context.Context, id string, version int) error
 // bindAssistanceTx 标记普通人工入口的模型暴露；专用批准还原子校验已保存preview及结果引用。
 func bindAssistanceTx(ctx context.Context, tx *sql.Tx, j *Job, kind string) error {
 	p := j.Plan
-	if p.Assistance != nil && kind == "batch_confirmed" {
+	if p.NamingReview && p.Assistance != nil && kind == "batch_confirmed" {
 		var state, snapshot, resultDigest, preview string
 		if err := tx.QueryRowContext(ctx, `SELECT state,snapshot,result_digest,preview FROM naming_requests WHERE id=? AND job_id=?`, p.Assistance.ID, j.ID).Scan(&state, &snapshot, &resultDigest, &preview); err != nil {
 			return err
@@ -325,6 +338,9 @@ func bindAssistanceTx(ctx context.Context, tx *sql.Tx, j *Job, kind string) erro
 		if json.Unmarshal([]byte(snapshot), &snap) != nil || json.Unmarshal([]byte(preview), &saved) != nil || state != "suggested" && state != "unresolved" || p.Assistance.SnapshotDigest != snap.Digest || p.Assistance.ResultDigest != resultDigest || saved.Digest != PlanDigest(p) {
 			return errors.New("naming_preview_required")
 		}
+		if err := namingCurrentTx(ctx, tx, snap); err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, `UPDATE naming_requests SET state='approved',version=version+1 WHERE id=?`, p.Assistance.ID); err != nil {
 			return err
 		}
@@ -332,7 +348,7 @@ func bindAssistanceTx(ctx context.Context, tx *sql.Tx, j *Job, kind string) erro
 	}
 	// legacy单文件入口同样标记模型接触；此引用无需读取未授权文件或修改既有比较。
 	var id, snapshot, resultDigest string
-	err := tx.QueryRowContext(ctx, `SELECT id,snapshot,result_digest FROM naming_requests WHERE job_id=? AND result!='' ORDER BY seq DESC LIMIT 1`, j.ID).Scan(&id, &snapshot, &resultDigest)
+	err := tx.QueryRowContext(ctx, `SELECT id,snapshot,result_digest FROM naming_requests WHERE job_id=? ORDER BY (result!='') DESC,seq DESC LIMIT 1`, j.ID).Scan(&id, &snapshot, &resultDigest)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
@@ -343,24 +359,26 @@ func bindAssistanceTx(ctx context.Context, tx *sql.Tx, j *Job, kind string) erro
 	if json.Unmarshal([]byte(snapshot), &snap) != nil {
 		return errors.New("naming_invalid")
 	}
-	if p.Assistance == nil {
+	if p.Assistance == nil || p.Assistance.ID != id || p.Assistance.SnapshotDigest != snap.Digest || p.Assistance.ResultDigest != resultDigest {
 		return errors.New("naming_preview_required")
 	}
+	// 普通batch/manual以自身当前preview和CAS作新的人类授权；原建议状态/正文保持不变。
 	return nil
 }
 
 // namingCurrentTx 防止RSS/规则写入在外部指纹校验与结果/preview提交之间改变逻辑快照。
 func namingCurrentTx(ctx context.Context, tx *sql.Tx, s NamingSnapshot) error {
-	var version int
+	var body string
 	var epoch int64
-	if err := tx.QueryRowContext(ctx, `SELECT version FROM jobs WHERE id=?`, s.JobID).Scan(&version); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT body FROM jobs WHERE id=?`, s.JobID).Scan(&body); err != nil {
 		return err
 	}
 	if err := tx.QueryRowContext(ctx, `SELECT value FROM naming_epoch WHERE id=1`).Scan(&epoch); err != nil {
 		return err
 	}
-	if version != s.JobVersion || epoch != s.RuleEpoch {
-		return errors.New("naming_stale")
+	var j Job
+	if json.Unmarshal([]byte(body), &j) != nil {
+		return errors.New("naming_invalid")
 	}
-	return nil
+	return namingLogicalCurrent(j, epoch, s)
 }

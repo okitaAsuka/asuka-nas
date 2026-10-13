@@ -19,6 +19,9 @@ CREATE TABLE IF NOT EXISTS naming_requests(seq INTEGER PRIMARY KEY AUTOINCREMENT
 CREATE TRIGGER IF NOT EXISTS naming_snapshot_immutable BEFORE UPDATE OF snapshot,bindings ON naming_requests BEGIN SELECT RAISE(ABORT,'immutable_snapshot'); END;
 CREATE TRIGGER IF NOT EXISTS naming_result_immutable BEFORE UPDATE OF result,result_digest ON naming_requests WHEN OLD.result!='' BEGIN SELECT RAISE(ABORT,'immutable_result'); END;
 CREATE TRIGGER IF NOT EXISTS naming_no_delete BEFORE DELETE ON naming_requests BEGIN SELECT RAISE(ABORT,'immutable_request'); END;
+CREATE TABLE IF NOT EXISTS naming_auto_scan(id INTEGER PRIMARY KEY CHECK(id=1),cursor TEXT NOT NULL);
+INSERT OR IGNORE INTO naming_auto_scan VALUES(1,'');
+CREATE UNIQUE INDEX IF NOT EXISTS naming_auto_semantic_once ON naming_requests(job_id,json_extract(snapshot,'$.semantic_digest')) WHERE json_extract(snapshot,'$.trigger')='automatic';
 CREATE TABLE IF NOT EXISTS naming_assistance_audit(seq INTEGER PRIMARY KEY AUTOINCREMENT,request_id TEXT NOT NULL,kind TEXT NOT NULL,created_at INTEGER NOT NULL);
 CREATE TRIGGER IF NOT EXISTS naming_audit_no_update BEFORE UPDATE ON naming_assistance_audit BEGIN SELECT RAISE(ABORT,'immutable_audit'); END;
 CREATE TRIGGER IF NOT EXISTS naming_audit_no_delete BEFORE DELETE ON naming_assistance_audit BEGIN SELECT RAISE(ABORT,'immutable_audit'); END;
@@ -40,8 +43,12 @@ type NamingFile struct {
 	Episode int    `json:"episode"`
 }
 
-// NamingSnapshot 同时绑定文件内容/身份、任务版本、上下文和命名规则epoch。
+// NamingSnapshot 绑定文件内容/身份、人工意图、上下文和规则epoch；任务版本仅审计。
 type NamingSnapshot struct {
+	// JobVersion仅为采集审计；语义摘要排除做种/退避等正交版本变化。
+	SemanticDigest string            `json:"semantic_digest,omitempty"`
+	PlanDigest     string            `json:"plan_digest,omitempty"`
+	Trigger        string            `json:"trigger,omitempty"`
 	Protocol       int               `json:"protocol"`
 	ID             string            `json:"id"`
 	Digest         string            `json:"digest"`
@@ -79,7 +86,7 @@ type NamingResult struct {
 	Uncertainties []string              `json:"uncertainties"`
 }
 
-// AssistanceRef 永久保留模型来源；人工修订/拒绝不把它转换为原始人工证据。
+// AssistanceRef 保守记录辅助历史；无返回结果时ResultDigest为空，人工修订也不洗成纯人工证据。
 type AssistanceRef struct {
 	ID             string `json:"id"`
 	SnapshotDigest string `json:"snapshot_digest"`
@@ -138,6 +145,10 @@ func (s *Store) namingReview(ctx context.Context, id string) (NamingReview, []na
 func (e *Engine) RequestNaming(ctx context.Context, jobID string, version int, hints NamingHints, retry bool) (NamingReview, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	return e.requestNaming(ctx, jobID, version, hints, retry, "human")
+}
+
+func (e *Engine) requestNaming(ctx context.Context, jobID string, version int, hints NamingHints, retry bool, trigger string) (NamingReview, error) {
 	var empty NamingReview
 	j, err := e.Store.Get(ctx, jobID)
 	if err != nil {
@@ -169,7 +180,7 @@ func (e *Engine) RequestNaming(ctx context.Context, jobID string, version int, h
 	if err != nil {
 		return empty, err
 	}
-	snapshot := NamingSnapshot{Protocol: 1, JobID: j.ID, JobVersion: j.Version, ContextVersion: j.ContextVersion, ParserVersion: TitleParserVersion, RuleEpoch: epoch, Hints: hints, Contexts: []LearningContext{}, Files: []NamingFile{}}
+	snapshot := NamingSnapshot{Trigger: trigger, PlanDigest: namingPlanDigest(j), Protocol: 1, JobID: j.ID, JobVersion: j.Version, ContextVersion: j.ContextVersion, ParserVersion: TitleParserVersion, RuleEpoch: epoch, Hints: hints, Contexts: []LearningContext{}, Files: []NamingFile{}}
 	contexts, err := e.Store.Contexts(ctx, j.ID)
 	if err != nil {
 		return empty, err
@@ -222,6 +233,7 @@ func (e *Engine) RequestNaming(ctx context.Context, jobID string, version int, h
 		snapshot.Files = append(snapshot.Files, f)
 	}
 	snapshot.ManifestDigest = digestStringJSON(private)
+	snapshot.SemanticDigest = namingSemanticDigest(snapshot)
 	rows, err := e.Store.db.QueryContext(ctx, `SELECT id FROM naming_requests WHERE job_id=? ORDER BY seq DESC`, j.ID)
 	if err != nil {
 		return empty, err
@@ -249,13 +261,19 @@ func (e *Engine) RequestNaming(ctx context.Context, jobID string, version int, h
 		same := prior.Snapshot
 		same.ID = ""
 		same.Digest = ""
-		if !retry && digestStringJSON(same) == digestStringJSON(snapshot) {
+		same.JobVersion = 0
+		same.Trigger = ""
+		same.SemanticDigest = namingSemanticDigest(same)
+		compared := snapshot
+		compared.JobVersion = 0
+		compared.Trigger = ""
+		if !retry && digestStringJSON(same) == digestStringJSON(compared) {
 			return prior, nil
 		}
 		if !retry {
 			return empty, errors.New("naming_retry_required")
 		}
-		if prior.State != "rejected" && prior.State != "unresolved" && e.currentNaming(ctx, prior, bindings) == nil {
+		if prior.State != "rejected" && prior.State != "unresolved" && e.currentNaming(ctx, prior, bindings) == nil && digestStringJSON(prior.Snapshot.Hints) == digestStringJSON(hints) {
 			return empty, errors.New("naming_retry_required")
 		}
 	}
@@ -274,17 +292,30 @@ func (e *Engine) RequestNaming(ctx context.Context, jobID string, version int, h
 		return empty, err
 	}
 	defer tx.Rollback()
-	// 与其它后端写入同样做CAS；版本和epoch变化不能在快照授权后滑入。
-	var current int
-	var ruleEpoch int64
-	if err = tx.QueryRowContext(ctx, `SELECT version FROM jobs WHERE id=?`, j.ID).Scan(&current); err != nil {
+	if err = namingCurrentTx(ctx, tx, snapshot); err != nil {
 		return empty, err
 	}
-	if err = tx.QueryRowContext(ctx, `SELECT value FROM naming_epoch WHERE id=1`).Scan(&ruleEpoch); err != nil {
+	var total int
+	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM naming_requests`).Scan(&total); err != nil {
 		return empty, err
 	}
-	if current != j.Version || ruleEpoch != epoch {
-		return empty, errors.New("naming_stale")
+	if total >= 10000 {
+		return empty, errors.New("naming_limit")
+	}
+	// 显式补充facts替代旧待发/待审项，防止旧无资料请求在后台继续付费或批准。
+	if retry && len(ids) > 0 {
+		prior, err := loadNamingStateTx(ctx, tx, ids[0])
+		if err != nil {
+			return empty, err
+		}
+		if prior != "approved" && prior != "rejected" {
+			if _, err = tx.ExecContext(ctx, `UPDATE naming_requests SET state='rejected',version=version+1,preview='' WHERE id=?`, ids[0]); err != nil {
+				return empty, err
+			}
+			if err = namingAudit(ctx, tx, ids[0], j.ID, "naming_superseded"); err != nil {
+				return empty, err
+			}
+		}
 	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO naming_requests(id,job_id,version,state,snapshot,bindings) VALUES(?,?,1,'requested',?,?)`, snapshot.ID, j.ID, string(body), string(bindingBody)); err != nil {
 		return empty, err
@@ -308,7 +339,13 @@ func (e *Engine) currentNaming(ctx context.Context, v NamingReview, private []na
 	if err != nil {
 		return err
 	}
-	if j.Version != v.Snapshot.JobVersion || j.ContextVersion != v.Snapshot.ContextVersion || epoch != v.Snapshot.RuleEpoch || TitleParserVersion != v.Snapshot.ParserVersion || j.Download != "completed" || j.Import != "needs_confirmation" || j.Plan != nil && (j.Plan.Approved || j.Plan.Started) || len(j.Sources) != len(private) {
+	if err := namingLogicalCurrent(j, epoch, v.Snapshot); err != nil {
+		return err
+	}
+	if v.Snapshot.SemanticDigest != "" && v.Snapshot.SemanticDigest != namingSemanticDigest(v.Snapshot) {
+		return errors.New("naming_invalid")
+	}
+	if len(j.Sources) != len(private) {
 		return errors.New("naming_stale")
 	}
 	sources := append([]string(nil), j.Sources...)
@@ -364,7 +401,7 @@ func (e *Engine) NamingReviews(ctx context.Context, job string) ([]NamingReview,
 
 func (s *Store) assistanceRef(ctx context.Context, job string) (*AssistanceRef, error) {
 	var id, snapshot, resultDigest string
-	err := s.db.QueryRowContext(ctx, `SELECT id,snapshot,result_digest FROM naming_requests WHERE job_id=? AND result!='' ORDER BY seq DESC LIMIT 1`, job).Scan(&id, &snapshot, &resultDigest)
+	err := s.db.QueryRowContext(ctx, `SELECT id,snapshot,result_digest FROM naming_requests WHERE job_id=? ORDER BY (result!='') DESC,seq DESC LIMIT 1`, job).Scan(&id, &snapshot, &resultDigest)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -380,3 +417,44 @@ func (s *Store) assistanceRef(ctx context.Context, job string) (*AssistanceRef, 
 
 // 目录只在NAS私有binding出现；拒绝上下文中独立绝对路径或盘符引用。
 var absoluteContextPath = regexp.MustCompile(`(^|[\s"\'=])(/[^\s]+|[A-Za-z]:/)`)
+
+// namingPlanDigest 绑定已有人工意图；批准/执行开始另作门禁，不能被PlanDigest去标志掩盖。
+func namingPlanDigest(j Job) string {
+	if j.Plan == nil {
+		return ""
+	}
+	return PlanDigest(j.Plan)
+}
+
+// namingSemanticDigest 不把做种版本或触发方式当命名事实；hints仍由完整Digest绑定。
+func namingSemanticDigest(s NamingSnapshot) string {
+	s.ID = ""
+	s.Digest = ""
+	s.SemanticDigest = ""
+	s.JobVersion = 0
+	s.Trigger = ""
+	s.Hints = NamingHints{}
+	return digestStringJSON(s)
+}
+
+// namingLogicalCurrent 是外部指纹检查和SQLite事务共用的逻辑门禁，忽略正交状态推进。
+func namingLogicalCurrent(j Job, epoch int64, s NamingSnapshot) error {
+	if j.ID != s.JobID || j.ContextVersion != s.ContextVersion || epoch != s.RuleEpoch || TitleParserVersion != s.ParserVersion || j.Download != "completed" || j.Import != "needs_confirmation" || j.BlockReason == "legacy_evidence_unresolved" || j.BlockReason == "late_mapping_conflict" || j.Plan != nil && (j.Plan.Approved || j.Plan.Started) || namingPlanDigest(j) != s.PlanDigest || len(j.Sources) != len(s.Files) {
+		return errors.New("naming_stale")
+	}
+	ids := map[string]bool{}
+	for _, f := range s.Files {
+		ids[f.ID] = true
+	}
+	for _, src := range j.Sources {
+		if !ids[digestString(src)] {
+			return errors.New("naming_stale")
+		}
+	}
+	return nil
+}
+func loadNamingStateTx(ctx context.Context, tx *sql.Tx, id string) (string, error) {
+	var state string
+	err := tx.QueryRowContext(ctx, `SELECT state FROM naming_requests WHERE id=?`, id).Scan(&state)
+	return state, err
+}

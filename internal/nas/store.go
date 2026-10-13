@@ -42,6 +42,8 @@ type Job struct {
 
 // Plan 在确认时冻结全部文件，版本或指纹变化即失效。
 type Plan struct {
+	// NamingReview只由专用审核入口设置；模型来源与人工授权路径分开，不能锁死人工fallback。
+	NamingReview   bool                      `json:"naming_review,omitempty"`
 	Assistance     *AssistanceRef            `json:"assistance,omitempty"`
 	Batch          *BatchOrganization        `json:"batch,omitempty"`
 	Manual         *ManualSemantics          `json:"manual,omitempty"`

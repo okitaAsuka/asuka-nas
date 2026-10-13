@@ -107,9 +107,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 	wg.Add(2)
 	go loop("source_cycle_failed", d.PollSources)
-	go loop("job_cycle_failed", func(ctx context.Context, now time.Time) error {
-		return d.Engine.RetryTick(ctx, now, d.Config.TickSeconds)
-	})
+	go loop("job_cycle_failed", d.TickJobs)
 	wg.Wait()
 	return nil
 }
