@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"path"
-	"sort"
 	"strings"
 )
 
@@ -174,27 +173,6 @@ func (e *Engine) batchPlan(ctx context.Context, j Job, b BatchOrganization) (*Pl
 	return p, nil
 }
 
-// bindManifest 包括不入库的辅助文件；confirm/execute均核对完整清单指纹。
-func (e *Engine) bindManifest(ctx context.Context, sources []string, p *Plan) error {
-	ordered := append([]string(nil), sources...)
-	sort.Strings(ordered)
-	fingerprints := map[string]string{}
-	for _, f := range p.Files {
-		fingerprints[f.Source] = f.Fingerprint
-	}
-	for _, source := range ordered {
-		fp := fingerprints[source]
-		var err error
-		if fp == "" {
-			fp, err = e.Files.FingerprintContext(ctx, source)
-		}
-		if err != nil {
-			return err
-		}
-		p.Manifest = append(p.Manifest, SourceEvidence{source, fp})
-	}
-	return nil
-}
 func (e *Engine) BatchConfirm(ctx context.Context, id string, version, planVersion int, digest string, b BatchOrganization) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
