@@ -246,14 +246,14 @@ footer > span > span { margin: 0 7px; color: var(--accent); }
   .eyebrow { font-size: 8px; letter-spacing: 1px; }
   .header-actions { gap: 7px; padding-top: 5px; }
   #refresh { min-height: 44px; padding: 8px 10px; font-size: 11px; }
-  .workflow-hero { grid-template-columns: 1fr; }
-  .hero-copy { padding: 22px 24px 18px; }
-  .hero-copy h2 { font-size: 30px; margin: 12px 0; }
-  .hero-art { padding: 0 16px 16px; }
-  .landscape { aspect-ratio: 2.3; object-fit: cover; }
-  .art-caption { bottom: 31px; left: 33px; }
-  .hero-line { white-space: pre-line; font-size: 11px; }
-  .hero-copy .actions { margin-top: 15px; }
+  /* 保持 DOM/键盘顺序，压缩装饰让首屏尽早呈现待办计数。 */
+  .workflow-hero { display: block; position: relative; min-height: 0; margin-bottom: 20px; }
+  .hero-copy { padding: 16px; }
+  .hero-copy .eyebrow, .hero-line, .art-caption { display: none; }
+  .hero-copy h2 { font-size: 20px; margin: 3px 0 12px; padding-right: 60px; min-height: 32px; white-space: normal; letter-spacing: -.5px; }
+  .hero-art { position: absolute; top: 16px; right: 16px; width: 48px; padding: 0; }
+  .hero-art .landscape { width: 48px; height: 48px; aspect-ratio: 1; border-radius: 8px; box-shadow: none; }
+  .hero-copy .actions { margin-top: 0; }
   .hero-copy button { min-height: 44px; }
   .workflow-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .workflow-metric strong { font-size: 31px; }

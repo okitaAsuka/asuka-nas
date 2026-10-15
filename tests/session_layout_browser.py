@@ -115,6 +115,8 @@ def run_session_contract_checks():
             expect(page.locator('.local')).to_contain_text('已认证管理会话')
             assert 'fixture-session-nonce' not in page.content()
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+            assert page.locator('[data-workflow=naming]').evaluate('(n)=>n.getBoundingClientRect().bottom <= innerHeight'), 'mobile action not visible in first screen'
+            screenshot('overview-mobile')
             page.set_viewport_size({'width':1440, 'height':1000})
             click('任务与入库'); click('查看详情')
             for name, value in [('batch_directory', 'My fixture library'), ('batch_display_name', 'My draft'), ('batch_season', '1')]:

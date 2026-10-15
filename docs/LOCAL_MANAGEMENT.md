@@ -10,7 +10,7 @@ asuka-nas -serve -config /absolute/path/config.json
 
 `-serve` 同时运行 RSS/job 循环；`-run` 仅运行 daemon，无管理端口。两者与 rules CLI 使用同一实例锁，锁先于可写 SQLite 打开/迁移。**默认模式**仅允许 IP 字面量回环地址，禁止 `0.0.0.0`、`::`、LAN IP、域名；它是无登录的本机单用户边界，不能通过反向代理或 Docker 映射暴露。已有授权SSH的同端口回环隧道仍可选，真实NAS/SSH未验。
 
-**显式 HTTPS 模式**已实现：`management.enabled:true` 与 `-serve` 同时满足、部署者提供可信证书/私钥及独立口令 verifier 时，才绑定配置中的明确地址。不能同时传 `-listen`；不复用 event/learning bearer，不信任 forwarded headers，不接受明文 HTTP。完整配置、session/login/logout、cookie/CSRF、错误及 UI hooks 见 [MANAGEMENT_ACCESS_CONTRACT.md](MANAGEMENT_ACCESS_CONTRACT.md)，部署前提见 [PACKAGING.md](PACKAGING.md)。登录UI的整合验收以最终集成SHA为准。默认关闭的事件/learning服务仍只回环，不随管理模式扩大，见 NOTIFICATIONS.md。
+**显式 HTTPS 模式**已实现：`management.enabled:true` 与 `-serve` 同时满足、部署者提供可信证书/私钥及独立口令 verifier 时，才绑定配置中的明确地址。不能同时传 `-listen`；不复用 event/learning bearer，不信任 forwarded headers，不接受明文 HTTP。完整配置、session/login/logout、cookie/CSRF、错误及 UI hooks 见 [MANAGEMENT_ACCESS_CONTRACT.md](MANAGEMENT_ACCESS_CONTRACT.md)，部署前提见 [PACKAGING.md](PACKAGING.md)。登录/退出UI已整合；401清空预览批准、在内存保留安全草稿，重新登录读取当前事实并重新预览，不自动重发POST。默认关闭的事件/learning服务仍只回环，不随管理模式扩大，见 NOTIFICATIONS.md。
 
 ## 操作
 

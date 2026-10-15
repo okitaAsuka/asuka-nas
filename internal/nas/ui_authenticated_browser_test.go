@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/json"
-	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -23,6 +22,12 @@ func TestHTTPSManagementBrowserLoop(t *testing.T) {
 	if os.Getenv("NAS_AUTH_DISPOSABLE_TRUST") != "1" {
 		t.Fatal("explicit disposable Chromium trust environment required")
 	}
+	runAuthenticatedBrowserUI(t)
+}
+
+// 复用 UI owner 4cf76bf 的真实表单流程，只保留一个 fixture；独立 gate 避免重复运行。
+func runAuthenticatedBrowserUI(t *testing.T) {
+	t.Helper()
 	f, _ := batchFixture(t)
 	raw, _ := accessTestVerifier(t)
 	c := accessTestConfig(t)
@@ -57,63 +62,74 @@ func TestHTTPSManagementBrowserLoop(t *testing.T) {
 			t.Error("HTTPS browser fixture did not drain")
 		}
 	})
-	var approvedIntent []byte
-	var frozenDigest string
 	// fixture 控制独立回环服务；不在生产 Management 上增加测试后门。
 	control := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var err error
-		switch r.URL.Path {
-		case "/expire":
+		if r.Method == "POST" && r.URL.Path == "/expire" {
 			management.access.mu.Lock()
-			clear(management.access.sessions)
+			for key, session := range management.access.sessions {
+				session.expires = time.Now().Add(-time.Second)
+				management.access.sessions[key] = session
+			}
 			management.access.mu.Unlock()
-		case "/assert-unconfirmed":
-			entries, readErr := os.ReadDir(f.library)
-			if readErr != nil || len(entries) != 0 || f.job().Plan != nil || len(comparisons(t, f)) != 0 {
-				err = fmt.Errorf("unauthorized or automatic confirmation changed fixture")
-			}
-		case "/assert-confirmed":
-			records := comparisons(t, f)
-			if f.job().Plan == nil || !f.job().Plan.Approved || len(records) != 1 || records[0].Status != "confirmed_intent" {
-				err = fmt.Errorf("explicit confirmation missing or duplicated")
-			} else {
-				approvedIntent, err = json.Marshal(records[0].Intent)
-				frozenDigest = PlanDigest(f.job().Plan)
-			}
-		case "/execute":
-			err = f.engine.Tick(context.Background(), time.Unix(1001, 0))
-			if err == nil && (f.job().Import != "imported" || f.job().Discovery == "confirmed") {
-				err = fmt.Errorf("refresh mistaken for per-file discovery")
-			}
-		case "/discover":
-			f.mu.Lock()
-			f.discovered = true
-			f.mu.Unlock()
-			err = f.engine.Tick(context.Background(), time.Unix(1002, 0))
-		default:
-			w.WriteHeader(http.StatusNotFound)
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		if err != nil {
-			t.Error(err)
-			w.WriteHeader(http.StatusInternalServerError)
+		if r.Method == "GET" && r.URL.Path == "/state" {
+			j := f.job()
+			entries, err := os.ReadDir(f.library)
+			if err != nil {
+				t.Error(err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{"approved": j.Plan != nil && j.Plan.Approved, "comparisons": len(comparisons(t, f)), "library_entries": len(entries)})
 			return
 		}
-		fmt.Fprint(w, "ok")
+		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer control.Close()
 	commandCtx, stopCommand := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer stopCommand()
-	command := exec.CommandContext(commandCtx, "python3", "../../tests/https_auth_browser.py")
-	command.Env = append(os.Environ(), "NAS_WEB_URL="+c.Origin, "NAS_FIXTURE_URL="+control.URL,
-		"NAS_TEST_CA="+filepath.Join(filepath.Dir(c.TLSCertFile), "synthetic-ca.crt"))
+	command := exec.CommandContext(commandCtx, "python3", "../../tests/authenticated_browser.py")
+	command.Env = append(os.Environ(), "NAS_AUTH_URL="+c.Origin, "NAS_AUTH_CONTROL="+control.URL,
+		"NAS_AUTH_CA="+filepath.Join(filepath.Dir(c.TLSCertFile), "synthetic-ca.crt"), "NAS_AUTH_PASSWORD="+accessTestPassword)
 	output, err := command.CombinedOutput()
 	t.Log(string(output))
 	if err != nil {
 		t.Fatal(err)
 	}
-	j := f.job()
 	records := comparisons(t, f)
+	j := f.job()
+	if j.Plan == nil || !j.Plan.Approved || len(j.Plan.Files) != 3 || len(records) != 1 || records[0].Status != "confirmed_intent" {
+		t.Fatal("explicit browser confirmation missing or duplicated")
+	}
+	approvedIntent, err := json.Marshal(records[0].Intent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	frozenDigest := PlanDigest(j.Plan)
+	f.tick(1001)
+	if f.job().Import != "imported" || f.job().Discovery == "confirmed" {
+		t.Fatal("refresh mistaken for per-file discovery")
+	}
+	f.engine.Emby = &batchPartialMedia{Media: f.engine.Emby, firstTarget: filepath.Join(f.library, j.Plan.Files[0].Target)}
+	f.tick(1002)
+	found := 0
+	for _, file := range comparisons(t, f)[0].Files {
+		if file.Video && file.Discovered {
+			found++
+		}
+	}
+	if found != 1 || f.job().Discovery == "confirmed" {
+		t.Fatal("one discovered file incorrectly completed the batch")
+	}
+	f.engine.Emby = f.engine.Emby.(*batchPartialMedia).Media
+	f.mu.Lock()
+	f.discovered = true
+	f.mu.Unlock()
+	f.tick(1003)
+	j = f.job()
+	records = comparisons(t, f)
 	if j.Import != "imported" || j.Discovery != "confirmed" || len(records) != 1 || records[0].Status != "complete" {
 		t.Fatal("trusted browser workflow did not complete")
 	}
@@ -138,5 +154,5 @@ func TestHTTPSManagementBrowserLoop(t *testing.T) {
 	if adds != 1 || stops != 1 || f.job().Seed != "stopped" {
 		t.Fatal("download/seed lifecycle changed", adds, stops)
 	}
-	t.Log("PASS actual Chromium trusted TLS + production management/SQLite + manual batch + immutable intent + per-file discovery + retained-source seeding deadline")
+	t.Log("PASS REAL AUTH EXECUTION: browser-approved immutable full batch -> retained-source hardlinks -> partial then all video fake Emby discovery -> independent 7-day stop; one download and one comparison")
 }

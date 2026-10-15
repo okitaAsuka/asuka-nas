@@ -68,7 +68,7 @@ Compose、配置/凭据模板、.env（无个人路径）、部署说明、VERSI
 | 经用户审查后的服务参数候选 | -serve -config /config/config.json | 缺省仍监听127.0.0.1:8787；HTTPS由management配置决定。会启动daemon并访问授权上游，不是无副作用UI模式 |
 | 重启 / 安全选项 | 首次不自动重启；GUI如支持，保留只读根、cap_drop ALL和no-new-privileges | 功能支持未核验；不开特权/root绕过失败 |
 
-默认host模板只使监听落在NAS回环。可选HTTPS管理已实现独立登录、会话与CSRF；最终登录UI集成和真实极空间GUI/客户端信任仍需验收。本轮未更改NAS监听、网络或Caddy；不把fixture/CI通过称作部署成功。
+默认host模板只使监听落在NAS回环。可选HTTPS管理已整合独立登录/退出UI、会话与CSRF；真实极空间GUI/客户端信任仍需验收。本轮未更改NAS监听、网络或Caddy；不把fixture/CI通过称作部署成功。
 
 ## 可选 HTTPS 管理：部署者明确启用
 

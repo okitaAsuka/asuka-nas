@@ -44,7 +44,11 @@ with sync_playwright() as p:
     expect(page.locator('#read-status')).to_have_attribute('data-state','stale')
     nav('刷新状态');expect(page.locator('#read-status')).to_have_attribute('data-state','read')
     capture('real-overview-desktop')
-    page.set_viewport_size({'width':390,'height':844});capture('real-overview-mobile')
+    page.set_viewport_size({'width':390,'height':844})
+    assert page.locator('.workflow-hero').bounding_box()['height'] <= 180
+    assert page.locator('[data-workflow=naming]').evaluate('(n)=>n.getBoundingClientRect().bottom <= innerHeight'), 'mobile pending action hidden below decoration'
+    capture('real-overview-mobile')
+    capture('real-overview-mobile-first-screen',full=False)
     page.set_viewport_size({'width':1440,'height':1000})
     page.locator('[data-workflow=naming]').focus();page.keyboard.press('Enter')
     expect(page.locator('.task-card')).to_have_count(22)
@@ -155,6 +159,6 @@ with sync_playwright() as p:
     print('PASS WORKFLOW production Management + SQLite: exact scoped counts, safe summaries, server search/filter/page, selected task/refresh/deep return/history, late success/error/new refresh, load/session retry, double-click subscription CAS, configured/missing/unknown setup, empty data, desktop/390px; no upstream calls; skip link, route titles, focus return/pagination/edit, loading/read/error/stale feedback, reduced motion, 320/390/768/1024 layouts')
     browser.close()
 
-# Separate UI-only authentication fixture; production TLS/auth belongs to the feature lane.
+# UI-only session edge cases stay distinct from make verify-auth's real TLS/backend gate.
 from session_layout_browser import run_session_contract_checks
 run_session_contract_checks()

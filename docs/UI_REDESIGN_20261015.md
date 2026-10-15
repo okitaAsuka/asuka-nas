@@ -1,5 +1,7 @@
 # 前端 lane：番剧工作台重设计 / 2026-10-15
 
+本文保留 UI lane 的独立交付记录。冻结候选为 `0f191d539a793c0c7e6cd3285827abca92407a6b`；父任务随后授权唯一集成 writer 合入，并按视觉审查压缩移动 hero，使待命名计数卡进入390×844首屏，保留原DOM/键盘顺序及桌面设计。最终统一 auth fixture、CI/包与截图见 [INTEGRATION_20261015.md](INTEGRATION_20261015.md)，后文临时验证分支不再是最终入口。
+
 ## 版本、所有权与集成
 
 起点严格为 `f19f1d275c1f755aca8c4024243fe089fb810208`（`codex/nas-frontend-workflow-20261013`），已从 origin fetch 并核对。环境初始 `work` 分支为旧初始化提交 `ba619cf`，工作区干净，无需覆盖或保管用户修改。实现分支 `codex/nas-ui-redesign-20261015`，首个实现检查点 `8a74b2aaaad751e2f0885b141224b568b574dd01`。最终交付 SHA 由提交后的回复绑定。

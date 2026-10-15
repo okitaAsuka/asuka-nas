@@ -1,5 +1,7 @@
 # 未完成功能 lane / 2026-10-15
 
+本文保留功能 lane 冻结时的归属与验证边界；后续父任务授权的三 lane 整合、共享文档/打包和真实登录 UI 验收见 [INTEGRATION_20261015.md](INTEGRATION_20261015.md)。下文“UI待整合”描述本 lane 独立交付阶段。
+
 基线：`f19f1d275c1f755aca8c4024243fe089fb810208`，从 origin 的 `codex/nas-frontend-workflow-20261013` fetch 并逐字核对。保存环境初始为干净 `ba619cf`，没有意外修改。工作分支 `codex/nas-feature-closure-20261015`。父任务已批准本轮认证管理范围并分配独占文件；未递归委派、未修改 asuka-agent 或其他 lane。
 
 ## 覆盖矩阵与本轮取舍
