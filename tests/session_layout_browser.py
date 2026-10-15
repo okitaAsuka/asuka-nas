@@ -125,6 +125,7 @@ def run_session_contract_checks():
             page.locator('[name=batch_start]').fill('7'); click('提取 / 展示连续编号')
             page.locator('[name=batch_order_confirmed]').check(); click('预览完整整理表')
             expect(page.get_by_role('button', name='确认整表方案')).to_be_enabled()
+            old_confirm = page.get_by_role('button', name='确认整表方案').element_handle()
             state['authenticated'] = False; state['version'] = 2
             click('确认整表方案')
             expect(page.get_by_role('heading', name='会话已结束')).to_be_visible()
@@ -139,6 +140,8 @@ def run_session_contract_checks():
             expect(page.locator('[name=batch_order_confirmed]')).not_to_be_checked()
             expect(page.locator('[name=batch_episode]').first).to_have_value('7')
             expect(page.locator('.source-name').first).to_contain_text('Fixture [01].mkv')
+            assert old_confirm.evaluate('(n)=>n.disabled')
+            old_confirm.evaluate('(n)=>n.click()')
             assert len([c for c in calls if c[1] == '/api/batch-confirm']) == sent
             assert page.evaluate('localStorage.length + sessionStorage.length') == 0
             page.locator('[name=batch_order_confirmed]').check(); click('预览完整整理表')

@@ -277,6 +277,10 @@ function lockSession(preserve = true) {
   authEpoch++; generation++;
   activeLibraryScan?.abort(); activeLibraryScan = null;
   for (const request of pendingRequests) request.abort();
+  // 清掉旧组件持有的授权，不只隐藏 DOM；即使保留旧节点引用也不能沿用批准。
+  view.querySelectorAll('input[type="checkbox"]').forEach(n => { n.checked = false; n.dispatchEvent(new Event("change", { bubbles: true })); });
+  view.querySelectorAll("[data-draft-key]").forEach(n => n.dispatchEvent(new Event("reset", { bubbles: true })));
+  view.querySelectorAll("button, input, select, textarea").forEach(n => { n.disabled = true; });
   view.replaceChildren(); view.setAttribute("aria-busy", "false");
   setBusy(false);
   $("#workspace-shell").hidden = true; $(".skip-link").hidden = true;
