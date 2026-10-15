@@ -13,16 +13,17 @@ import (
 
 // Config 的秘密只由部署时提供，不序列化进日志。
 type Config struct {
-	Learning              LearningServiceConfig `json:"learning,omitempty"`
-	Events                EventServiceConfig    `json:"events,omitempty"`
-	FetchIntervalMillis   int                   `json:"fetch_interval_ms,omitempty"`
-	Subscriptions         []Subscription        `json:"subscriptions,omitempty"`
-	PollSeconds           int                   `json:"poll_seconds,omitempty"`
-	TickSeconds           int                   `json:"tick_seconds,omitempty"`
-	RequestTimeoutSeconds int                   `json:"request_timeout_seconds,omitempty"`
-	RSSMaxBytes           int64                 `json:"rss_max_bytes,omitempty"`
-	TorrentMaxBytes       int64                 `json:"torrent_max_bytes,omitempty"`
-	MaxItems              int                   `json:"max_items,omitempty"`
+	Management            ManagementAccessConfig `json:"management,omitempty"`
+	Learning              LearningServiceConfig  `json:"learning,omitempty"`
+	Events                EventServiceConfig     `json:"events,omitempty"`
+	FetchIntervalMillis   int                    `json:"fetch_interval_ms,omitempty"`
+	Subscriptions         []Subscription         `json:"subscriptions,omitempty"`
+	PollSeconds           int                    `json:"poll_seconds,omitempty"`
+	TickSeconds           int                    `json:"tick_seconds,omitempty"`
+	RequestTimeoutSeconds int                    `json:"request_timeout_seconds,omitempty"`
+	RSSMaxBytes           int64                  `json:"rss_max_bytes,omitempty"`
+	TorrentMaxBytes       int64                  `json:"torrent_max_bytes,omitempty"`
+	MaxItems              int                    `json:"max_items,omitempty"`
 
 	Database  string `json:"database"`
 	Downloads string `json:"downloads"`
@@ -55,6 +56,9 @@ func LoadConfig(r io.Reader) (Config, error) {
 // Validate 不执行网络探测，避免读取配置触发真实服务调用。
 func (c Config) Validate() error {
 	c.defaults()
+	if err := c.Management.Validate(c.Events.TokenEnv, c.Learning.TokenEnv); err != nil {
+		return err
+	}
 	if err := c.Learning.Validate(); err != nil {
 		return err
 	}

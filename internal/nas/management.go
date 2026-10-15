@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
+	"crypto/tls"
 	"embed"
 	"encoding/hex"
 	"encoding/json"
@@ -12,6 +13,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -20,20 +22,29 @@ import (
 //go:embed web/*
 var webFiles embed.FS
 
-// Management 仅是本机单用户入口，不把局域网视作认证。
+// Management 默认是回环单用户入口；显式 HTTPS 模式必须经过独立人类会话，不把 LAN 当作认证。
 type Management struct {
 	Daemon             *Daemon
 	origin, host, csrf string
 	assets             http.Handler
 	writes             chan struct{}
+	access             *managementAccess
 }
 
 func NewManagement(ctx context.Context, d *Daemon, host string) (*Management, error) {
+	if d.Config.Management.Enabled {
+		return nil, errors.New("management_authenticated_required")
+	}
 	h, _, err := net.SplitHostPort(host)
 	ip := net.ParseIP(h)
 	if err != nil || ip == nil || !ip.IsLoopback() {
 		return nil, errors.New("loopback_required")
 	}
+	return newManagement(ctx, d, host, "http://"+host, nil)
+}
+
+func newManagement(ctx context.Context, d *Daemon, host, origin string, access *managementAccess) (*Management, error) {
+	var err error
 	if err = d.Engine.Store.InitControl(ctx, d.Config.Subscriptions); err != nil {
 		return nil, err
 	}
@@ -43,7 +54,26 @@ func NewManagement(ctx context.Context, d *Daemon, host string) (*Management, er
 		return nil, errors.New("csrf_unavailable")
 	}
 	files, _ := fs.Sub(webFiles, "web")
-	return &Management{Daemon: d, origin: "http://" + host, host: host, csrf: hex.EncodeToString(nonce[:]), assets: http.FileServer(http.FS(files)), writes: make(chan struct{}, 1)}, nil
+	return &Management{Daemon: d, origin: origin, host: host, csrf: hex.EncodeToString(nonce[:]), assets: http.FileServer(http.FS(files)), writes: make(chan struct{}, 1), access: access}, nil
+}
+
+// OpenAuthenticatedManagement 先验证独立凭据/TLS/状态，再绑定显式地址；不启动 daemon。
+func OpenAuthenticatedManagement(ctx context.Context, d *Daemon) (net.Listener, *Management, error) {
+	c := d.Config.Management
+	a, tlsConfig, err := prepareManagementAccess(c, d.Config.Events.TokenEnv, d.Config.Learning.TokenEnv)
+	if err != nil {
+		return nil, nil, err
+	}
+	u, _ := url.Parse(c.Origin)
+	m, err := newManagement(ctx, d, u.Host, c.Origin, a)
+	if err != nil {
+		return nil, nil, err
+	}
+	l, err := net.Listen("tcp", c.Listen)
+	if err != nil {
+		return nil, nil, errors.New("management_listen_unavailable")
+	}
+	return tls.NewListener(l, tlsConfig), m, nil
 }
 
 // ListenManagement 不接受 localhost DNS/通配地址；调用者必须显式选择 serve。
@@ -56,20 +86,19 @@ func ListenManagement(address string) (net.Listener, error) {
 	return net.Listen("tcp", address)
 }
 func (m *Management) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Referrer-Policy", "no-referrer")
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
-	if r.Host != m.host || (r.Header.Get("Origin") != "" && r.Header.Get("Origin") != m.origin) || r.Header.Get("Sec-Fetch-Site") == "cross-site" {
-		apiError(w, 403, "origin_rejected")
+	if !managementBoundary(w, r, m.host, m.origin) {
 		return
 	}
-	if r.Method != "GET" && r.Method != "POST" {
-		apiError(w, 405, "method_rejected")
-		return
+	csrf := m.csrf
+	if m.access != nil {
+		var handled bool
+		csrf, handled = m.access.authorize(w, r, m.origin)
+		if handled {
+			return
+		}
 	}
 	// 人工管理身份与服务Bearer完全分离，防止借batch/legacy入口自批模型建议。
-	if r.Method == "POST" && (r.Header.Get("Authorization") != "" || r.Header.Get("Origin") != m.origin || r.Header.Get("Content-Type") != "application/json" || subtle.ConstantTimeCompare([]byte(r.Header.Get("X-CSRF-Nonce")), []byte(m.csrf)) != 1) {
+	if r.Method == "POST" && (r.Header.Get("Authorization") != "" || r.Header.Get("Origin") != m.origin || r.Header.Get("Content-Type") != "application/json" || subtle.ConstantTimeCompare([]byte(r.Header.Get("X-CSRF-Nonce")), []byte(csrf)) != 1) {
 		apiError(w, 403, "csrf_rejected")
 		return
 	}
@@ -229,7 +258,7 @@ func (m *Management) api(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
 		switch path {
 		case "session":
-			apiJSON(w, map[string]string{"csrf": m.csrf})
+			apiJSON(w, managementSessionDTO{Mode: "local_single_user", Authenticated: true, CSRF: m.csrf})
 			return
 		case "health":
 			err := s.db.PingContext(ctx)
@@ -241,7 +270,11 @@ func (m *Management) api(w http.ResponseWriter, r *http.Request) {
 			capability := func(enabled bool) map[string]any {
 				return map[string]any{"supported": true, "configured_enabled": enabled, "runtime": "unknown"}
 			}
-			apiJSON(w, map[string]any{"mode": "local_single_user", "database": "ok", "gateway": "unknown", "discord": "unknown", "metadata": "not_supported", "model": "unknown", "learning": "human_reviewed_rule_proposals", "integration_config": map[string]any{"rss_profiles": len(m.Daemon.Config.Subscriptions), "qb_url": m.Daemon.Config.QBURL != "", "emby_url": m.Daemon.Config.EmbyURL != ""}, "capabilities": map[string]any{
+			mode := "local_single_user"
+			if m.access != nil {
+				mode = "authenticated_https"
+			}
+			apiJSON(w, map[string]any{"mode": mode, "database": "ok", "gateway": "unknown", "discord": "unknown", "metadata": "not_supported", "model": "unknown", "learning": "human_reviewed_rule_proposals", "integration_config": map[string]any{"rss_profiles": len(m.Daemon.Config.Subscriptions), "qb_url": m.Daemon.Config.QBURL != "", "emby_url": m.Daemon.Config.EmbyURL != ""}, "capabilities": map[string]any{
 				"events":           capability(m.Daemon.Config.Events.Enabled),
 				"learning":         capability(m.Daemon.Config.Learning.Enabled),
 				"automatic_naming": capability(m.Daemon.Config.Learning.AutomaticNaming),

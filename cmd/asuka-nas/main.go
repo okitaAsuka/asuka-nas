@@ -21,10 +21,12 @@ func main() {
 	}
 }
 
-// 仅公开本轮容量拒绝码，不输出配置URL或原始驱动错误。
+// 只公开显式允许的固定启动码，不输出配置路径/URL、凭据或原始驱动错误。
 func startupMessage(err error) string {
 	switch err.Error() {
 	case "subscription_limit", "subscription_history_limit":
+		return "startup_failed: " + err.Error()
+	case "management_listen_invalid", "management_origin_invalid", "management_credentials_invalid", "management_identity_reused", "management_tls_required", "management_credentials_unavailable", "management_tls_unavailable", "management_tls_invalid", "management_listen_unavailable", "management_authenticated_required", "management_listen_conflict":
 		return "startup_failed: " + err.Error()
 	}
 	return "startup_failed"
@@ -48,6 +50,14 @@ func run() error {
 	cfg, err := nas.LoadConfig(file)
 	if err != nil {
 		return err
+	}
+	// 认证模式的地址只来自显式配置，拒绝另一 CLI 地址来源而不是静默忽略。
+	if cfg.Management.Enabled && *serve {
+		conflict := false
+		flag.Visit(func(f *flag.Flag) { conflict = conflict || f.Name == "listen" })
+		if conflict {
+			return errors.New("management_listen_conflict")
+		}
 	}
 	if !*execute && !*serve {
 		fmt.Println("configuration_valid (no network or file operations executed)")
@@ -100,16 +110,25 @@ func run() error {
 		workers = append(workers, func() error { return nas.ServeManagement(ctx, l, h) })
 	}
 	if *serve {
-		listener, err := nas.ListenManagement(*listen)
-		if err != nil {
-			return err
+		if cfg.Management.Enabled {
+			listener, management, err := nas.OpenAuthenticatedManagement(ctx, daemon)
+			if err != nil {
+				return err
+			}
+			defer listener.Close()
+			workers = append(workers, func() error { return nas.ServeManagement(ctx, listener, management) })
+		} else {
+			listener, err := nas.ListenManagement(*listen)
+			if err != nil {
+				return err
+			}
+			defer listener.Close()
+			management, err := nas.NewManagement(ctx, daemon, listener.Addr().String())
+			if err != nil {
+				return err
+			}
+			workers = append(workers, func() error { return nas.ServeManagement(ctx, listener, management) })
 		}
-		defer listener.Close()
-		management, err := nas.NewManagement(ctx, daemon, listener.Addr().String())
-		if err != nil {
-			return err
-		}
-		workers = append(workers, func() error { return nas.ServeManagement(ctx, listener, management) })
 	}
 	results := make(chan error, len(workers))
 	for _, worker := range workers {

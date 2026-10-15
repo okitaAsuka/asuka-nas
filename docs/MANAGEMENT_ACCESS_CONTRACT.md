@@ -26,6 +26,8 @@
 
 password_hash_env 引用部署者已有 PBKDF2-HMAC-SHA256 verifier，格式 `pbkdf2-sha256$600000$<salt>$<derived-key>`；salt/derived-key 使用**无 padding 标准 Base64**，salt 16–64 字节，derived-key 32 字节，迭代数 600000–1000000。用户名为 1–64 字节 `[A-Za-z0-9][A-Za-z0-9_.-]*`，登录密码为 12–1024 字节有效 UTF-8。不提供创建实际凭据的命令/接口。环境引用及实际密码必须独立于 event/learning bearer 身份；启动验证拒绝相同引用或相同实际密码。没有注册、重设密码或权限管理接口。
 
+启动仅输出固定 `startup_failed: management_*` 码：`listen_invalid`/`origin_invalid` 修正明确地址；`listen_conflict` 移除重复 `-listen` 来源；`credentials_invalid` 核对用户名/env 引用；`credentials_unavailable` 核对部署者提供的 verifier；`identity_reused` 使用独立人类凭据；`tls_required`/`tls_unavailable` 核对既有证书/私钥路径与读取权限；`tls_invalid` 核对主机名、期限、serverAuth；`listen_unavailable` 核对显式地址可绑定性。每个后缀前都有 `management_`。不打印秘密、路径或系统原始错误。恢复配置后重新启动，所有旧会话失效；不提供 HTTP 降级或证书验证绕过。
+
 ## 浏览器接口（精确合同）
 
 所有响应 `Cache-Control:no-store`。所有 POST 都要求精确 `Origin`、`Content-Type:application/json`，并拒绝 `Authorization`；其他 API 的 CSRF/CAS/完整 preview-confirm 语义不变。Host/Origin 检查先于任何鉴权；TLS 模式拒绝明文请求，不从 forwarded headers 接受 TLS 声明。
