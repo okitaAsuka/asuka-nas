@@ -215,9 +215,10 @@ func (f *faultFiles) LinkContext(ctx context.Context, p PlannedFile) error {
 func TestCollectionMidLinkDatabaseFailureAndFrozenRecovery(t *testing.T) {
 	f := packFixture(t, "mixed")
 	ctx := context.Background()
+	var clearFault func()
 	f.engine.Files = &faultFiles{FileOperations: f.files, at: 5, after: func() error {
-		_, e := f.store.db.Exec(`CREATE TRIGGER reject_fifth BEFORE INSERT ON events WHEN NEW.kind='file_linked' AND NEW.file_index=4 BEGIN SELECT RAISE(ABORT,'fixture'); END`)
-		return e
+		clearFault = f.failEvent("file_linked", 4)
+		return nil
 	}}
 	if e := f.engine.Tick(ctx, time.Unix(1000, 0)); e == nil {
 		t.Fatal("expected DB failure")
@@ -236,9 +237,7 @@ func TestCollectionMidLinkDatabaseFailureAndFrozenRecovery(t *testing.T) {
 		t.Fatal("fifth link not created")
 	}
 	digest := PlanDigest(j.Plan)
-	if _, e = f.store.db.Exec("DROP TRIGGER reject_fifth"); e != nil {
-		t.Fatal(e)
-	}
+	clearFault()
 	r := packRule()
 	r.Revision = 2
 	r.Directory = "new-rule-target"
@@ -455,9 +454,7 @@ func TestSchemaV3PlanMigrationAndConflictRollback(t *testing.T) {
 
 func TestFileIntentMustCommitBeforeLink(t *testing.T) {
 	f := packFixture(t, "relative")
-	if _, e := f.store.db.Exec(`CREATE TRIGGER reject_intent BEFORE INSERT ON events WHEN NEW.kind='file_intent' AND NEW.file_index=5 BEGIN SELECT RAISE(ABORT,'fixture'); END`); e != nil {
-		t.Fatal(e)
-	}
+	clearFault := f.failEvent("file_intent", 5)
 	if e := f.engine.Tick(context.Background(), time.Unix(1000, 0)); e == nil {
 		t.Fatal("expected intent failure")
 	}
@@ -469,9 +466,7 @@ func TestFileIntentMustCommitBeforeLink(t *testing.T) {
 	if e != nil || records[5].State != "pending" {
 		t.Fatal(records, e)
 	}
-	if _, e = f.store.db.Exec("DROP TRIGGER reject_intent"); e != nil {
-		t.Fatal(e)
-	}
+	clearFault()
 	f.reopen()
 	f.tick(1001)
 	if f.job().Import != "imported" {
@@ -483,9 +478,7 @@ func TestReadyEventFailureDoesNotLosePerVideoDiscovery(t *testing.T) {
 	f.mu.Lock()
 	f.discovered = true
 	f.mu.Unlock()
-	if _, e := f.store.db.Exec(`CREATE TRIGGER reject_ready BEFORE INSERT ON events WHEN NEW.kind='discovered' BEGIN SELECT RAISE(ABORT,'fixture'); END`); e != nil {
-		t.Fatal(e)
-	}
+	clearFault := f.failEvent("discovered")
 	if e := f.engine.Tick(context.Background(), time.Unix(1000, 0)); e == nil {
 		t.Fatal("expected ready failure")
 	}
@@ -506,9 +499,7 @@ func TestReadyEventFailureDoesNotLosePerVideoDiscovery(t *testing.T) {
 	if n != 11 {
 		t.Fatal("per-video progress lost")
 	}
-	if _, e = f.store.db.Exec("DROP TRIGGER reject_ready"); e != nil {
-		t.Fatal(e)
-	}
+	clearFault()
 	f.reopen()
 	f.tick(1001)
 	if f.job().Discovery != "confirmed" {

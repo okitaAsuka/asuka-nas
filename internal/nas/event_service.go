@@ -2,8 +2,6 @@ package nas
 
 import (
 	"context"
-	"crypto/sha256"
-	"crypto/subtle"
 	"errors"
 	"net"
 	"net/http"
@@ -64,15 +62,7 @@ func OpenEventService(c EventServiceConfig, store *Store) (net.Listener, http.Ha
 
 // EventHandler 的明确服务鉴权与精确 Host 拒绝浏览器跨站来源；返回字段没有标题/URL/错误原文。
 func EventHandler(store *Store, token, host string) http.Handler {
-	expected := sha256.Sum256([]byte("Bearer " + token))
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		actual := sha256.Sum256([]byte(r.Header.Get("Authorization")))
-		if len(token) < 32 || r.Host != host || r.Header.Get("Origin") != "" || r.Header.Get("Sec-Fetch-Site") != "" || subtle.ConstantTimeCompare(actual[:], expected[:]) != 1 {
-			apiError(w, 401, "service_unauthorized")
-			return
-		}
+	return serviceBoundary(token, host, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/events" {
 			apiError(w, 404, "not_found")
 			return
@@ -104,7 +94,7 @@ func EventHandler(store *Store, token, host string) http.Handler {
 			page.Next = v.ID
 		}
 		apiJSON(w, page)
-	})
+	}))
 }
 
 // wireEvent 只使用现有安全事件字段，协议版本与领域 schema 分开。

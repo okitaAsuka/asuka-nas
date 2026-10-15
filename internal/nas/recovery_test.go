@@ -2,7 +2,6 @@ package nas
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,11 +20,8 @@ func TestExternalEffectThenTransactionFailure(t *testing.T) {
 			}
 			f := newFixture(t, "Show.S01E01.mkv", days)
 			ctx := context.Background()
-			_, err := f.store.db.Exec(fmt.Sprintf(`CREATE TRIGGER fail_event BEFORE INSERT ON events WHEN NEW.kind='%s' BEGIN SELECT RAISE(ABORT,'fixture_failure'); END;`, kind))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err = f.engine.Tick(ctx, time.Unix(1000, 0)); err == nil {
+			clearFault := f.failEvent(kind)
+			if err := f.engine.Tick(ctx, time.Unix(1000, 0)); err == nil {
 				t.Fatal("expected transactional failure")
 			}
 			events, err := f.store.Events(ctx, 0)
@@ -41,9 +37,7 @@ func TestExternalEffectThenTransactionFailure(t *testing.T) {
 			if kind == "imported" && j.Import == "imported" {
 				t.Fatal("state escaped transaction")
 			}
-			if _, err = f.store.db.Exec("DROP TRIGGER fail_event"); err != nil {
-				t.Fatal(err)
-			}
+			clearFault()
 			f.reopen()
 			f.tick(1001)
 			f.tick(1002)

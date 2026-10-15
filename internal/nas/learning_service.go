@@ -2,8 +2,6 @@ package nas
 
 import (
 	"context"
-	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"net"
@@ -77,15 +75,7 @@ func OpenLearningService(c LearningServiceConfig, events EventServiceConfig, s *
 
 // LearningHandler agent只能读样本和提交pending；不提供审核/文件/管理接口。
 func LearningHandler(s *Store, token, host string, engines ...*Engine) http.Handler {
-	expected := sha256.Sum256([]byte("Bearer " + token))
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		actual := sha256.Sum256([]byte(r.Header.Get("Authorization")))
-		if len(token) < 32 || r.Host != host || r.Header.Get("Origin") != "" || r.Header.Get("Sec-Fetch-Site") != "" || subtle.ConstantTimeCompare(expected[:], actual[:]) != 1 {
-			apiError(w, 401, "service_unauthorized")
-			return
-		}
+	return serviceBoundary(token, host, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var engine *Engine
 		if len(engines) > 0 {
 			engine = engines[0]
@@ -152,7 +142,7 @@ func LearningHandler(s *Store, token, host string, engines ...*Engine) http.Hand
 			return
 		}
 		apiError(w, 404, "not_found")
-	})
+	}))
 }
 
 // proposalAPI 已经过管理Host/Origin/CSRF/单写门；保留前端独立owner。

@@ -124,23 +124,8 @@ func (e *Engine) collectionPlan(ctx context.Context, j *Job) (*Plan, error) {
 			return nil, errors.New("collection_incomplete")
 		}
 	}
-	// 辅助文件虽然不入库，也必须真实存在、不是符号链接并绑定源指纹。
-	ordered := append([]string(nil), j.Sources...)
-	sort.Strings(ordered)
-	fingerprints := map[string]string{}
-	for _, f := range p.Files {
-		fingerprints[f.Source] = f.Fingerprint
-	}
-	for _, source := range ordered {
-		fp := fingerprints[source]
-		var err error
-		if fp == "" {
-			fp, err = e.Files.FingerprintContext(ctx, source)
-		}
-		if err != nil {
-			return nil, err
-		}
-		p.Manifest = append(p.Manifest, SourceEvidence{source, fp})
+	if err = e.bindManifest(ctx, j.Sources, p); err != nil {
+		return nil, err
 	}
 	if err = e.Store.snapshotEvidence(ctx, j.ID, p); err != nil {
 		return nil, err
