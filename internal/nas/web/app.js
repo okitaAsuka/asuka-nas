@@ -14,7 +14,14 @@ let csrf = "",
   eventCursor = 0,
   subscriptionCursor = "",
   ruleClues = null,
-  activeLibraryScan = null;
+  activeLibraryScan = null,
+  focusAfterLoad = null,
+  sessionMode = "local_single_user",
+  authEpoch = 0,
+  sessionLocked = false,
+  sessionDraft = null,
+  loadingDraft = null;
+const pendingRequests = new Set();
 const names = {
   overview: "日常总览",
   jobs: "任务与入库",
@@ -22,6 +29,14 @@ const names = {
   rules: "命名规则",
   events: "事件记录",
   health: "健康与接入",
+};
+const descriptions = {
+  overview: "下载、命名、入库。今天的待办，一眼看清。",
+  jobs: "追踪每一集的去向，核对依据后再继续。",
+  subscriptions: "管理追番来源，让下一集按约而来。",
+  rules: "把人工确认过的经验，变成有边界的规则。",
+  events: "每一步都有记录，每一条状态都有出处。",
+  health: "从离线镜像到服务接入，逐项核对真实状态。",
 };
 const states = {
   pending: "等待处理",
@@ -40,6 +55,13 @@ const states = {
   not_connected: "未接入",
 };
 const errors = {
+  authentication_failed: "用户名或密码不正确，请重新核对。",
+  authentication_required: "会话已失效，请重新登录。未完成请求不会自动重发。",
+  authentication_unavailable: "认证服务暂不可用，请稍后手动重试。",
+  login_throttled: "登录尝试过于频繁。",
+  session_limit: "有效会话已达上限，请从其他已登录浏览器退出，或等待会话到期。",
+  origin_rejected: "页面地址与配置的访问地址不一致，请使用部署者提供的完整地址。",
+  https_required: "此入口需要可信 HTTPS，请核对访问地址与证书配置。",
   store_failed: "本地数据暂时无法读取，请稍后重新加载。",
   database_unavailable: "本地数据库暂时不可用，请核对部署后重新加载。",
   invalid_cursor: "分页位置不正确，请返回列表首页。",
@@ -101,6 +123,26 @@ function el(tag, text, cls) {
   if (cls) n.className = cls;
   return n;
 }
+// 共享表现组件只创建安全 DOM；不持有业务版本、批准状态或请求摘要。
+function sectionLead(kicker, title, description) {
+  const n = el("div", undefined, "section-lead");
+  n.append(el("span", kicker, "eyebrow"), el("h2", title));
+  if (description) n.append(el("p", description, "muted"));
+  return n;
+}
+function loadingState() {
+  const n = el("div", undefined, "loading-state");
+  n.append(el("p", "正在读取本页状态…", "loading-label"));
+  const shapes = el("div", undefined, "loading-shapes");
+  shapes.setAttribute("aria-hidden", "true");
+  for (let i = 0; i < 4; i++) shapes.append(el("span"));
+  n.append(shapes);
+  return n;
+}
+function setReadStatus(text, state) {
+  $("#read-status").textContent = text;
+  $("#read-status").dataset.state = state;
+}
 function panel(title) {
   const n = el("section", undefined, "panel");
   if (title) n.append(el("h2", title));
@@ -122,36 +164,182 @@ function time(v) {
 }
 function fail(err) {
   message.className = "error";
+  message.setAttribute("role", "alert");
   message.textContent = errors[err.message] || `操作未完成：${err.message}`;
+  message.focus({ preventScroll: true });
+  message.scrollIntoView({ block: "nearest", behavior: "instant" });
 }
 async function api(path, data, signal) {
-  let r;
+  if (sessionLocked && !["session", "login"].includes(path)) throw new Error("authentication_required");
+  const epoch = authEpoch, controller = new AbortController();
+  const abort = () => controller.abort();
+  if (signal?.aborted) controller.abort();
+  signal?.addEventListener("abort", abort, { once: true });
+  pendingRequests.add(controller);
   try {
-    r = await fetch("/api/" + path, {
-      method: data === undefined ? "GET" : "POST",
-      headers:
-        data === undefined
-          ? {}
-          : { "Content-Type": "application/json", "X-CSRF-Nonce": csrf },
-      body: data === undefined ? undefined : JSON.stringify(data),
-      credentials: "same-origin",
-      signal,
-    });
-  } catch (e) {
-    if (e.name === "AbortError") throw new Error("library_cancelled");
-    throw new Error("本地服务暂时不可达，请刷新重试。");
+    let r;
+    try {
+      r = await fetch("/api/" + path, {
+        method: data === undefined ? "GET" : "POST",
+        headers: data === undefined ? {} : {
+          "Content-Type": "application/json",
+          ...(path === "login" ? {} : { "X-CSRF-Nonce": csrf }),
+        },
+        body: data === undefined ? undefined : JSON.stringify(data),
+        credentials: "same-origin", signal: controller.signal,
+      });
+    } catch (e) {
+      if (e.name === "AbortError") throw new Error("library_cancelled");
+      throw new Error("本地服务暂时不可达，请刷新重试。");
+    }
+    let v;
+    try { v = await r.json(); } catch { throw new Error("服务返回了无法读取的响应。"); }
+    // 旧会话的迟到响应不能覆盖新登录，也不能恢复任何预览授权。
+    if (epoch !== authEpoch) throw new Error("authentication_required");
+    if (!r.ok) {
+      if (r.status === 401 && v.error === "authentication_required") lockSession(path !== "logout");
+      const error = new Error(v.error || "operation_failed");
+      const retry = r.headers.get("Retry-After");
+      if (r.status === 429 && /^\d+$/.test(retry || "")) error.retryAfter = Math.max(1, Number(retry));
+      throw error;
+    }
+    return v;
+  } finally {
+    pendingRequests.delete(controller);
+    signal?.removeEventListener("abort", abort);
   }
-  let v;
-  try {
-    v = await r.json();
-  } catch {
-    throw new Error("服务返回了无法读取的响应。");
-  }
-  if (!r.ok) throw new Error(v.error || "operation_failed");
-  return v;
 }
+// 仅在当前页面内存保留显式注册的非秘密编辑器。DOM/预览摘要/勾选授权绝不持久化。
+function draftable(node, key, capture, restore) {
+  node.dataset.draftKey = key;
+  node.draftAccess = { capture, restore };
+}
+function draftIdentity() { return JSON.stringify([tab, detailID, proposalSelection, subscriptionCursor]); }
+function captureDraft() {
+  const entries = [...view.querySelectorAll("[data-draft-key]")].map(n => [n.dataset.draftKey, n.draftAccess.capture()]);
+  return entries.length ? { identity: draftIdentity(), entries } : null;
+}
+function draftFields(node) {
+  return [...node.querySelectorAll("input[name], select[name], textarea[name]")]
+    .filter(n => !["checkbox", "password", "hidden"].includes(n.type) && !n.disabled)
+    .map(n => [n.name, n.value]);
+}
+function restoreFields(node, fields) {
+  const available = [...node.querySelectorAll("[name]")];
+  if (fields.some(([name, value]) => {
+    const input = available.find(n => n.name === name && !n.disabled);
+    return !input || ["checkbox", "password"].includes(input.type) || input.tagName === "SELECT" && ![...input.options].some(o => o.value === value);
+  })) return false;
+  for (const [name, value] of fields) {
+    const input = [...node.querySelectorAll("[name]")].find(n => n.name === name && !n.disabled);
+    if (!input || input.type === "checkbox" || input.type === "password") return false;
+    if (input.tagName === "SELECT" && ![...input.options].some(o => o.value === value)) return false;
+    input.value = value;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+}
+function restoreSessionDraft() {
+  const saved = sessionDraft; sessionDraft = null;
+  if (!saved) return;
+  const unrestored = [];
+  for (const [key, data] of saved.entries) {
+    const target = saved.identity === draftIdentity() && [...view.querySelectorAll("[data-draft-key]")].find(n => n.dataset.draftKey === key);
+    if (!target || target.draftAccess.restore(data) === false) unrestored.push([key, data]);
+  }
+  if (unrestored.length) {
+    const fallback = panel("未自动恢复的草稿");
+    fallback.append(el("p", "任务、来源或编辑通道已变化。以下仅保留原输入供人工核对，未载入当前方案。", "notice"), el("pre", JSON.stringify(unrestored, null, 2)));
+    draftable(fallback, "unrestored", () => unrestored, () => false);
+    view.prepend(fallback);
+  }
+  message.className = "notice";
+  message.setAttribute("role", "status");
+  message.textContent = "已重新读取当前状态。非秘密草稿已恢复或保留在下方；原预览、批准、范围声明与排序勾选已清除。请核对后重新预览，未自动重发任何操作。";
+}
+function acceptSession(value) {
+  sessionMode = value.mode || "local_single_user";
+  if (!["local_single_user", "authenticated_https"].includes(sessionMode)) throw new Error("未知的管理访问模式，请核对服务版本。");
+  if (sessionMode === "authenticated_https" && value.authenticated === false) { lockSession(false); return false; }
+  if (!value.csrf || value.authenticated === false || sessionMode === "authenticated_https" && value.authenticated !== true) throw new Error("会话响应不完整，请重新读取。");
+  csrf = value.csrf; sessionLocked = false;
+  $("#session-gate").hidden = true; $("#session-gate").replaceChildren();
+  $("#workspace-shell").hidden = false; $(".skip-link").hidden = false;
+  $("#logout").hidden = sessionMode !== "authenticated_https";
+  // 标识访问模式，不把认证成功等同于任何上游连接成功。
+  $(".local").replaceChildren(el("span", "", "dot"), document.createTextNode(sessionMode === "authenticated_https" ? "已认证管理会话" : "本机管理工作台"), el("small", "源文件保留 · 人工始终可继续"));
+  return true;
+}
+function lockSession(preserve = true) {
+  if (sessionLocked) return;
+  sessionDraft = preserve ? captureDraft() || loadingDraft : null;
+  loadingDraft = null;
+  csrf = ""; sessionLocked = true; sessionMode = "authenticated_https";
+  authEpoch++; generation++;
+  activeLibraryScan?.abort(); activeLibraryScan = null;
+  for (const request of pendingRequests) request.abort();
+  // 清掉旧组件持有的授权，不只隐藏 DOM；即使保留旧节点引用也不能沿用批准。
+  view.querySelectorAll('input[type="checkbox"]').forEach(n => { n.checked = false; n.dispatchEvent(new Event("change", { bubbles: true })); });
+  view.querySelectorAll("[data-draft-key]").forEach(n => n.dispatchEvent(new Event("reset", { bubbles: true })));
+  view.querySelectorAll("button, input, select, textarea").forEach(n => { n.disabled = true; });
+  view.replaceChildren(); view.setAttribute("aria-busy", "false");
+  setBusy(false);
+  $("#workspace-shell").hidden = true; $(".skip-link").hidden = true;
+  renderLogin(preserve);
+}
+function renderLogin(expired) {
+  const gate = $("#session-gate"); gate.hidden = false; gate.replaceChildren();
+  document.title = "登录 · asuka 番剧工作台";
+  const surface = el("div", undefined, "login-surface"), story = el("div", undefined, "login-story");
+  story.append(el("div", "ASUKA / YOUR LOCAL MEDIA ARCHIVE", "eyebrow"), el("h2", "热爱的故事，\n安心收藏。"), $("#landscape-art").content.cloneNode(true), el("p", "下载与整理继续由 NAS 处理。\n登录后，回到你的番剧工作台。"));
+  const form = el("form", undefined, "login-form"), heading = el("h1", expired ? "会话已结束" : "欢迎回到 asuka");
+  heading.id = "session-title"; heading.tabIndex = -1;
+  form.append(el("div", "SECURE WORKSPACE", "eyebrow"), heading,
+    el("p", expired ? "请重新登录。当前页面的非秘密草稿只保留在内存，关闭或刷新页面会丢失。" : "使用部署者为此工作台配置的独立账号。", "muted"));
+  const user = field(form, "用户名", "login_username"); user.autocomplete = "username"; user.required = true; user.maxLength = 64;
+  const password = field(form, "密码", "login_password", "", "password"); password.autocomplete = "current-password"; password.required = true;
+  const status = el("p", undefined, "login-status"); status.id = "login-status"; status.setAttribute("role", "status");
+  password.setAttribute("aria-describedby", status.id);
+  const submit = button("登录工作台", () => {}, true); submit.type = "submit";
+  form.append(status, submit, el("p", "请使用部署者提供的可信 HTTPS 地址。此页面不提供注册或重设密码。", "login-help"));
+  if (expired) form.append(el("p", "已发出的操作可能已被服务器接收。登录后先核对持久状态；旧预览和批准均需重新确认。", "notice"));
+  let submitting = false, retryAt = 0;
+  form.onsubmit = async e => {
+    e.preventDefault();
+    if (submitting || Date.now() < retryAt) return;
+    submitting = true; submit.disabled = true; user.disabled = true; password.disabled = true;
+    password.removeAttribute("aria-invalid"); status.className = "login-status muted"; status.setAttribute("role", "status"); status.textContent = "正在验证会话…";
+    const epoch = authEpoch;
+    try {
+      const value = await api("login", { username: user.value, password: password.value });
+      password.value = "";
+      if (epoch !== authEpoch || !gate.isConnected) return;
+      if (!acceptSession(value)) return;
+      authEpoch++;
+      syncNavigation(); focusAfterLoad = "#heading";
+      await load();
+    } catch (error) {
+      if (epoch !== authEpoch) return;
+      status.className = "login-status error"; status.setAttribute("role", "alert");
+      status.textContent = errors[error.message] || "登录未完成，请核对服务后手动重试。";
+      if (error.retryAfter) {
+        retryAt = Date.now() + error.retryAfter * 1000;
+        status.textContent += ` 请至少等待 ${error.retryAfter} 秒后手动重试。`;
+        setTimeout(() => { if (epoch === authEpoch && form.isConnected) submit.disabled = false; }, Math.min(error.retryAfter * 1000, 2147483647));
+      }
+      if (error.message === "authentication_failed") password.setAttribute("aria-invalid", "true");
+      password.disabled = false; password.focus();
+    } finally {
+      password.value = ""; submitting = false; user.disabled = false; password.disabled = false;
+      submit.disabled = Date.now() < retryAt;
+    }
+  };
+  surface.append(story, form); gate.append(surface);
+  if (expired) heading.focus(); else user.focus();
+}
+
 function setBusy(v) {
   busy = v;
+  $("#logout").disabled = v;
   document.querySelectorAll("[data-write]").forEach((b) => {
     b.disabled = v || b.dataset.unavailable === "true";
   });
@@ -170,6 +358,7 @@ async function mutate(fn) {
   try {
     await fn();
     if (g === generation) {
+      message.setAttribute("role", "status");
       message.className = "success";
       message.textContent = "操作已保存。";
       await load(false);
@@ -208,16 +397,19 @@ function table(headers) {
   const wrap = el("div", undefined, "scroll"),
     t = el("table"),
     head = el("tr"),
+    thead = el("thead"),
     body = el("tbody");
-  headers.forEach((h) => head.append(el("th", h)));
-  t.append(head, body);
+  headers.forEach((h) => { const th = el("th", h); th.scope = "col"; head.append(th); });
+  thead.append(head);
+  t.append(thead, body);
   wrap.append(t);
   return { wrap, body };
 }
 function row(body, values) {
   const r = el("tr");
-  values.forEach((v) => {
+  values.forEach((v, i) => {
     const c = el("td");
+    c.dataset.label = body.parentElement.querySelectorAll("th")[i]?.textContent || "";
     c.append(v instanceof Node ? v : el("span", v));
     r.append(c);
   });
@@ -231,15 +423,20 @@ function unavailable(b, reason) {
 async function load(clear = true) {
   activeLibraryScan?.abort();
   activeLibraryScan = null;
-  const g = ++generation;
+  if (sessionLocked) return;
+  loadingDraft = captureDraft();
+  const g = ++generation, requestedFocus = focusAfterLoad;
+  focusAfterLoad = null;
+  setReadStatus("正在读取本页…", "loading");
   if (clear) {
     message.textContent = "";
     message.className = "";
-    view.replaceChildren(el("p", "正在加载…", "empty"));
+    message.setAttribute("role", "status");
+    view.replaceChildren(loadingState());
   }
   view.setAttribute("aria-busy", "true");
   try {
-    if (!csrf) csrf = (await api("session")).csrf;
+    if (!csrf && !acceptSession(await api("session"))) return;
     const content = await {
       overview: overviewView,
       jobs: jobsView,
@@ -250,12 +447,23 @@ async function load(clear = true) {
     }[tab]();
     if (g !== generation) return;
     view.replaceChildren(content);
+    loadingDraft = null;
+    restoreSessionDraft();
+    setReadStatus("本页读取于 " + new Date().toLocaleTimeString("zh-CN", {hour12: false}), "read");
     view.querySelector("[data-review-heading]")?.focus();
+    if (requestedFocus) {
+      const target = typeof requestedFocus === "function" ? requestedFocus() : document.querySelector(requestedFocus);
+      target?.focus({ preventScroll: true });
+      if (target?.id === "heading") window.scrollTo({ top: 0, behavior: "instant" });
+      else target?.scrollIntoView({ block: "nearest", behavior: "instant" });
+    }
     if (detailSection) jumpTo(detailSection);
     setBusy(busy);
   } catch (e) {
     if (g === generation) {
+      setReadStatus("本页读取失败 · 可重试", "error");
       const recovery = panel("暂时无法读取");
+      recovery.classList.add("load-error");
       recovery.append(el("p", "数据尚未读取成功。可重试；当前页面入口会保留。", "muted"), button("重新加载", () => load(), true));
       view.replaceChildren(recovery);
       fail(e);
@@ -266,6 +474,8 @@ async function load(clear = true) {
 }
 function syncNavigation() {
   $("#heading").textContent = names[tab];
+  $("#page-description").textContent = descriptions[tab];
+  document.title = names[tab] + " · asuka 番剧工作台";
   document.querySelectorAll("[data-tab]").forEach((b) => {
     b.classList.toggle("selected", b.dataset.tab === tab);
     if (b.dataset.tab === tab) b.setAttribute("aria-current", "page");
@@ -301,11 +511,13 @@ function navigate(next, filter = "all") {
   tab = next; detailID = ""; detailSection = ""; cursor = "";
   jobFilter = filter; jobQuery = "";
   subscriptionCursor = ""; proposalSelection = null;
+  focusAfterLoad = "#heading";
   syncNavigation(); saveRoute(); load();
 }
 function openJob(id, section = "") {
   detailReturn = tab === "overview" ? "overview" : "jobs";
   tab = "jobs"; detailID = id; detailSection = section;
+  focusAfterLoad = "#heading";
   syncNavigation(); saveRoute(); load();
 }
 function jumpTo(id) {
@@ -319,9 +531,23 @@ function jumpTo(id) {
   target.focus({ preventScroll: true });
   target.scrollIntoView({ block: "start", behavior: "instant" });
 }
-window.addEventListener("popstate", () => { readRoute(); load(); });
+window.addEventListener("popstate", () => { if (sessionLocked) return; readRoute(); focusAfterLoad = "#heading"; load(); });
+// 离开页面后只提示快照可能陈旧，不自动刷新并清掉人工草稿，也不触发上游探测。
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && $("#read-status").dataset.state === "read") {
+    setReadStatus("离开期间未刷新 · 状态可能已变化", "stale");
+  }
+});
+$(".skip-link").onclick = (e) => { e.preventDefault(); $("#heading").focus(); };
 document.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => navigate(b.dataset.tab)));
 $("#refresh").onclick = () => load();
+$("#logout").onclick = async () => {
+  if (busy || sessionMode !== "authenticated_https") return;
+  setBusy(true);
+  try { await api("logout", {}); lockSession(false); }
+  catch (error) { if (!sessionLocked) fail(error); }
+  finally { setBusy(false); }
+};
 function scopeText(scope) {
   if (!scope) return "统计范围由接口返回；当前未提供全库计数。";
   return scope.truncated
@@ -335,12 +561,19 @@ const workflowFilters = [
 ];
 async function overviewView() {
   const data = await api("workflow"), root = el("div");
-  const intro = panel("把今天要处理的事放在一起");
-  intro.classList.add("workflow-hero");
-  intro.append(el("p", "从下载到媒体库，每一步都有依据。", "hero-line"),
-    el("p", "先补充不明确的命名，再审核可复用规则；入库后继续核对 Emby 是否真正发现。", "muted"),
-    el("p", scopeText(data.scope), "scope-note"));
-  root.append(intro);
+  const intro = el("section", undefined, "workflow-hero");
+  const copy = el("div", undefined, "hero-copy");
+  copy.append(el("div", "YOUR COLLECTION, YOUR CONSTELLATION", "eyebrow"),
+    el("h2", "让每一集，\n都有归处。"),
+    el("p", "从追番到收藏，留住热爱的每一帧。\n规则优先，人工把关；每一步都清楚可循。", "hero-line"));
+  const heroActions = el("div", undefined, "actions");
+  heroActions.append(button("打开全部任务", () => navigate("jobs"), true), button("管理订阅", () => navigate("subscriptions")));
+  copy.append(heroActions);
+  const art = el("div", undefined, "hero-art");
+  art.setAttribute("aria-hidden", "true");
+  art.append($("#landscape-art").content.cloneNode(true), el("span", "明日も、好きな物語を。", "art-caption"));
+  intro.append(copy, art);
+  root.append(intro, sectionLead("01 / TODAY’S WORKSPACE", "把今天要处理的事放在一起"), el("p", scopeText(data.scope), "scope-note"));
   const metrics = el("div", undefined, "workflow-metrics");
   const steps = [
     ["downloading", "下载中 / 等待下载", "查看下载状态；速度和进度未提供"],
@@ -352,21 +585,31 @@ async function overviewView() {
   steps.forEach(([key, label, hint], i) => {
     const n = button("", () => navigate(key === "rules" ? "rules" : "jobs", key === "rules" ? "all" : key));
     n.className = "workflow-metric"; n.dataset.workflow = key;
-    n.append(el("span", "0" + (i + 1), "step-index"), el("strong", data.counts[key]), el("span", label, "metric-label"), el("small", hint), el("span", "查看 →", "metric-link"));
+    n.append(el("span", ["↓", "✦", "⌘", "◈", "↺"][i], "metric-symbol"), el("span", "0" + (i + 1), "step-index"), el("strong", data.counts[key]), el("span", label, "metric-label"), el("small", hint), el("span", "查看 →", "metric-link"));
     metrics.append(n);
   });
   root.append(metrics, el("p", "任务分类可能重叠：例如待命名任务也可能有错误。待审规则为全库持久 pending 版本数，进入详情后重新核验是否过期。", "muted"));
   const next = panel(data.counts.all ? "继续处理" : "从第一条订阅开始");
   next.append(el("p", data.counts.all ? `已发现 ${data.counts.ready} 个媒体就绪任务。选择上方待办，进入任务核对依据。` : "当前没有任务。先在部署配置中添加来源档案，再在订阅页选择来源和启用抓取。", "muted"));
   const actions = el("div", undefined, "actions");
-  actions.append(button("打开全部任务", () => navigate("jobs"), true), button("管理订阅", () => navigate("subscriptions")), button("查看接入步骤", () => navigate("health")));
-  next.append(actions); root.append(next);
+  actions.append(button("查看就绪任务", () => navigate("jobs", "ready"), true), button("查看接入步骤", () => navigate("health")));
+  next.append(actions);
+  const journey = panel("从追番，到收藏");
+  journey.classList.add("journey-panel");
+  journey.append(el("p", "流程说明 · 不代表当前任务的执行进度", "muted"));
+  const stages = el("ol", undefined, "journey");
+  [["RSS 订阅", "读取来源"], ["qB 下载", "源文件做种"], ["规则 / 人工", "确认命名"], ["硬链接", "不覆盖源文件"], ["Emby 发现", "逐文件核对"]].forEach(([title, hint], i) => {
+    const stage = el("li"); stage.append(el("span", String(i + 1).padStart(2, "0"), "step-index"), el("strong", title), el("small", hint)); stages.append(stage);
+  });
+  journey.append(stages, el("p", "普通状态通知由 gateway 固定发送，零模型调用。命名难题可交给 agent，复用规则仍须人工终审。", "journey-note"));
+  root.append(journey, next);
   return root;
 }
 async function jobsView() {
   if (detailID) return jobView(detailID);
   const data = await api("jobs?" + new URLSearchParams({after: cursor, filter: jobFilter, q: jobQuery}));
   const root = el("div"), p = panel("任务进度");
+  p.classList.add("task-workspace");
   p.append(el("p", scopeText(data.scope), "scope-note"));
   const filters = el("form", undefined, "task-filters");
   const search = field(filters, "搜索任务名 / 来源摘要 / ID", "job_search", jobQuery, "search");
@@ -377,19 +620,24 @@ async function jobsView() {
   filters.append(apply);
   function applyFilters() {
     jobQuery = search.value.trim(); jobFilter = filter.value; cursor = "";
+    focusAfterLoad = "[name=job_search]";
     saveRoute(); load();
   }
   filters.onsubmit = (e) => { e.preventDefault(); applyFilters(); };
   filter.onchange = applyFilters;
-  p.append(filters, el("p", `本页 ${data.items.length} 条${data.matched === undefined ? "" : ` · 范围内匹配 ${data.matched} 条`} · 按任务 ID 排序，每页最多 100 条`, "muted"));
+  const results = el("p", `本页 ${data.items.length} 条${data.matched === undefined ? "" : ` · 范围内匹配 ${data.matched} 条`} · 按任务 ID 排序，每页最多 100 条`, "results-count muted");
+  results.id = "task-results"; results.tabIndex = -1;
+  results.setAttribute("role", "status");
+  p.append(filters, results);
   const list = el("div", undefined, "task-list");
   data.items.forEach((v) => {
     const j = v.job, card = el("article", undefined, "task-card"), title = el("div", undefined, "task-identity");
     card.dataset.jobId = j.id;
+    card.dataset.tone = j.error_code ? "error" : workflowTaskNeedsNaming(j) ? "attention" : v.ready ? "ready" : "pending";
     title.append(el("h3", v.summary || "名称未知"), el("p", `${v.summary_kind || "尚无来源摘要"} · ${v.episode || "季集未知 · 需明确依据"}`, "muted"), el("small", j.id, "mono"));
     const state = el("div", undefined, "task-states");
     [["下载", j.download], ["入库", j.import], ["Emby", v.ready ? "已就绪" : j.discovery], ["做种", j.seed]].forEach(([label, value]) => {
-      const cell = el("div"); cell.append(el("span", label, "state-label"), badge(value, v.ready ? "ok" : j.block_reason && label === "入库" ? "warn" : "")); state.append(cell);
+      const cell = el("div"); cell.append(el("span", label, "state-label"), badge(value, (label === "Emby" && v.ready) || ["completed", "imported", "stopped"].includes(value) ? "ok" : j.block_reason && label === "入库" ? "warn" : "")); state.append(cell);
     });
     const actions = el("div", undefined, "task-actions");
     actions.append(el("p", v.next_step || "查看证据与当前方案", "next-step"), button("查看详情", () => openJob(j.id), true));
@@ -408,7 +656,7 @@ async function jobsView() {
   p.append(list);
   const actions = el("div", undefined, "actions");
   if (cursor) actions.append(button("返回首页", () => { cursor = ""; saveRoute(); load(); }));
-  if (data.next) actions.append(button("下一页", () => { cursor = data.next; saveRoute(); load(); }));
+  if (data.next) actions.append(button("下一页", () => { cursor = data.next; focusAfterLoad = "#task-results"; saveRoute(); load(); }));
   p.append(actions); root.append(p); return root;
 }
 function workflowTaskNeedsNaming(j) {
@@ -420,7 +668,9 @@ async function jobView(id) {
     root = el("div");
   root.append(
     button("← 返回任务", () => {
+      const returningID = detailID;
       detailID = ""; detailSection = ""; tab = detailReturn;
+      focusAfterLoad = () => [...view.querySelectorAll(".task-card")].find(card => card.dataset.jobId === returningID)?.querySelector("button") || $("#heading");
       syncNavigation(); saveRoute(); load();
     }),
   );
@@ -429,6 +679,7 @@ async function jobView(id) {
   p.append(el("p", "来源摘要：" + (j.sources?.[0] || v.contexts?.[0]?.title || "名称未知"), "detail-name"), el("p", j.id, "mono"));
   const jumps = el("div", undefined, "actions detail-jumps");
   [["naming", "命名 / 人工整理"], ["evidence", "来源证据"], ["plan", "文件方案"], ["comparison", "对比与审计"], ["recovery", "安全恢复"]].forEach(([id, label]) => { const b = button(label, () => jumpTo(id)); b.dataset.jobSection = id; jumps.append(b); });
+  jumps.setAttribute("role", "group"); jumps.setAttribute("aria-label", "任务详情分区");
   root.append(jumps);
   const summary = el("dl", undefined, "summary");
   [
@@ -584,6 +835,7 @@ async function jobView(id) {
       "text",
     );
     target.placeholder = "作品/Season 01/作品 - S01E01.mkv";
+    draftable(form, "single-file", () => draftFields(form), saved => restoreFields(form, saved));
     form.append(
       writeButton(
         "生成文件预览",
@@ -910,6 +1162,8 @@ class BatchEditor {
     });
   }
   update() {
+    // 输入修改后移除上一轮字段错误；新预览仍由服务器完整校验。
+    [this.directory, this.display, this.season, this.offset, this.start, this.order].forEach(n => n.removeAttribute("aria-invalid"));
     const mode = this.mode.value;
     this.offset.closest("label").hidden = mode !== "extracted";
     this.start.closest("label").hidden = mode !== "sequential";
@@ -1045,6 +1299,16 @@ class BatchWorkbench {
     this.output.dataset.batchPreview = "true";
     this.editor = new BatchEditor(job, detail, () => this.invalidate());
     this.gate = new ReviewedRequestGate(() => JSON.stringify([this.assistance?.id, this.assistance?.version, this.editor.snapshot()]));
+    draftable(this.node, "batch", () => ({ channel: this.assistance?.id || "manual", values: this.editor.raw() }), saved => {
+      if (saved.channel !== (this.assistance?.id || "manual")) return false;
+      const raw = saved.values, editor = this.editor;
+      if (raw.rows.length !== editor.rows.length || raw.rows.some(row => !editor.rows.some(r => r.source === row.source))) return false;
+      editor.directory.value = raw.directory; editor.display.value = raw.display; editor.season.value = raw.season;
+      editor.mode.value = raw.mode; editor.offset.value = raw.offset; editor.start.value = raw.start;
+      editor.rows.sort((a, b) => raw.rows.findIndex(r => r.source === a.source) - raw.rows.findIndex(r => r.source === b.source));
+      editor.rows.forEach(row => { row.episode = raw.rows.find(r => r.source === row.source).episode; });
+      editor.clearOrder(); editor.renderRows(); editor.update(); this.invalidate();
+    });
     this.preview = writeButton(
       "预览完整整理表",
       () => this.readPreview(),
@@ -1306,6 +1570,7 @@ class NamingAssistance {
     this.season = field(hints, "人工明确的季号（可空，不设默认）", "naming_season", "", "number");
     this.season.min = 1; this.season.max = 99; this.season.step = 1;
     this.hintGate = new ReviewedRequestGate(() => JSON.stringify([this.job.id, this.job.version, this.hints(), this.latest?.id, this.latest?.version]));
+    draftable(hints, "naming-hints", () => draftFields(hints), saved => { if (restoreFields(hints, saved) === false) return false; this.hintGate.invalidate(); this.sync(); });
     for (const event of ["input", "change", "reset"]) hints.addEventListener(event, () => { this.hintGate.invalidate(); this.sync(); });
     this.status = el("p", undefined, "batch-status muted");
     this.status.dataset.namingStatus = "true";
@@ -1740,6 +2005,7 @@ async function subscriptionsView() {
         name.value = v.name;
         enabled.value = String(v.enabled);
         version = v.version;
+        name.focus({ preventScroll: true });
         form.scrollIntoView({ block: "nearest" });
       }),
     );
@@ -1799,6 +2065,17 @@ async function subscriptionsView() {
       ["false", "停用"],
     ]);
   form.append(grid);
+  form.classList.add("subscription-editor");
+  draftable(form, "subscription", () => ({ editing: id.readOnly, values: draftFields(form) }), saved => {
+    const savedID = saved.values.find(([key]) => key === "subscription_id")?.[1];
+    if (saved.editing) {
+      const current = data.items.find(item => item.id === savedID);
+      if (!current) return false;
+      version = current.version; id.readOnly = true;
+      if (![...profile.options].some(o => o.value === current.profile)) { const option = el("option", current.profile + "（配置已移除，仅可停用）"); option.value = current.profile; profile.append(option); }
+    }
+    return restoreFields(form, saved.values);
+  });
   const actions = el("div", undefined, "actions"),
     save = writeButton(
       "保存订阅",
@@ -1831,6 +2108,7 @@ async function subscriptionsView() {
       id.value = "";
       id.readOnly = false;
       name.value = "";
+      id.focus();
     }),
   );
   form.append(actions);
@@ -1924,11 +2202,20 @@ async function rulesView() {
     ["总集结束（可空）", "absolute_end", "", "number"],
     ["总集映射到相对首集", "relative_start", 1, "number"],
   ];
-  defs.forEach(
-    ([label, n, v, type]) => (fields[n] = field(grid, label, n, v, type)),
-  );
+  const identity = el("fieldset", undefined, "mapping-group"), relative = el("fieldset", undefined, "mapping-group"), absolute = el("fieldset", undefined, "mapping-group");
+  identity.append(el("legend", "01 · 媒体身份与版本"));
+  relative.append(el("legend", "02 · 相对集数范围"), el("p", "只填写有依据的有限范围。", "muted"));
+  absolute.append(el("legend", "03 · 总集 → 相对集（可选）"), el("p", "例如总集 67–78 对应本季 1–12；不能据此前推新篇章。", "muted"));
+  const identityGrid = el("div", undefined, "grid"), relativeGrid = el("div", undefined, "grid"), absoluteGrid = el("div", undefined, "grid");
+  identity.append(identityGrid); relative.append(relativeGrid); absolute.append(absoluteGrid);
+  defs.forEach(([label, n, v, type]) => {
+    const group = ["start", "end"].includes(n) ? relativeGrid : ["absolute_start", "absolute_end", "relative_start"].includes(n) ? absoluteGrid : identityGrid;
+    fields[n] = field(group, label, n, v, type);
+  });
+  grid.classList.add("mapping-groups");
+  grid.append(identity, relative, absolute);
   fields.subscription = select(
-    grid,
+    identityGrid,
     "订阅作用域",
     "rule_subscription",
     subscriptions.items.map((v) => [v.id, v.name + " · " + v.id]),
@@ -2071,10 +2358,12 @@ async function rulesView() {
     saveDraft,
   );
   form.append(actions, preview);
+  draftable(form, "rule-draft", () => draftFields(form).filter(([name]) => name !== "mapping_context"), saved => { if (restoreFields(form, saved) === false) return false; invalidatePreview(); });
   root.append(form);
   const discovery = panel("从已有媒体目录提取候选"),
     libraryDirectory = field(discovery, "媒体根内的相对系列目录（明确选择）", "library_directory"),
     candidateOutput = el("div");
+  draftable(discovery, "library-directory", () => libraryDirectory.value, saved => { libraryDirectory.value = saved; });
   discovery.append(el("p", "只读取所选目录下的文件名与有界 NFO；最多 512 项、3 层子目录、每份 NFO 64KiB/合计 1MiB、5 秒。拒绝符号链接。已有季仅作观察，不能据此认定新篇章属于下一季；选择候选不授权入库。", "muted"));
   let scanGeneration = 0, lastLibraryDirectory = libraryDirectory.value;
   function invalidateCandidate() {
@@ -2237,7 +2526,7 @@ function setupGuide(profileCount) {
   p.append(el("p", `${profileCount} 个来源档案已配置。${profileCount ? "页面可选择来源引用、启停与重试抓取。" : "缺少 RSS 来源档案，当前不能保存新的启用订阅。"} RSS URL、服务地址与凭据需由部署者在本地配置；本页没有这些字段的保存接口。`, "notice"));
   const steps = el("ol", undefined, "setup-steps");
   [
-    ["准备离线包", "先解压离线包；极空间 GUI 导入 image.tar。config.template.json 是公开模板，复制为实际挂载的 config.json；GUI 的启动参数、挂载与回环访问仍需在 NAS 上核验。"],
+    ["准备离线包", "先解压离线包；极空间 GUI 导入 image.tar。config.template.json 是公开模板，复制为实际挂载的 config.json；GUI 的启动参数、挂载与访问入口仍需在 NAS 上核验。"],
     ["填写来源与服务", "在实际 config.json 的 subscriptions 中填写唯一 id 和 RSS url；qb_url、emby_url 填部署者确认的服务地址。RSS token 只留在本地配置，不能粘贴到显示名称、规则或来源 ID。"],
     ["提供秘密环境变量", "qB 登录使用 ASUKA_NAS_QB_USERNAME / ASUKA_NAS_QB_PASSWORD；Emby 使用 ASUKA_NAS_EMBY_TOKEN。credentials.env.template 提供变量名，实际值由运行环境注入，不在此页面读取或保存。"],
     ["核对挂载再重启", "核对 downloads 与 library 不重叠且支持同文件系统硬链接；qB 下载路径与服务一致，Emby 媒体路径一致。配置校验只验证格式；重启后回到订阅页选择来源并启用，核对真实轮询与任务证据。"],
@@ -2248,17 +2537,17 @@ function setupGuide(profileCount) {
   p.append(template);
   const checks = el("details"); checks.append(el("summary", "部署检查清单"));
   const list = el("ul");
-  ["关闭数据库后备份 SQLite；本版开发迁移未授权升级真实生产库。", "保持管理回环监听；本轮不改 LAN、鉴权、Caddy 或网络设置。", "核对 Linux openat2、非 root 用户权限、挂载路径与实际硬链接；不通过复制绕过跨设备。", "从一条测试订阅开始，逐项核对下载完成、命名预览、人工确认、硬链接及 Emby 真实 Path 发现。", "命名/学习/事件服务默认关闭；启用配置不证明 agent、模型或通知消费者在线。"].forEach((text) => list.append(el("li", text)));
+  ["关闭数据库后备份 SQLite；本版开发迁移未授权升级真实生产库。", sessionMode === "authenticated_https" ? "当前使用独立 HTTPS 会话。证书信任、监听与端口映射由部署者核验；现有 Caddy 保持不变。" : "当前是回环单用户入口，不可直接公开。网络访问需先完成独立身份与可信 HTTPS 配置；现有 Caddy 保持不变。", "核对 Linux openat2、非 root 用户权限、挂载路径与实际硬链接；不通过复制绕过跨设备。", "从一条测试订阅开始，逐项核对下载完成、命名预览、人工确认、硬链接及 Emby 真实 Path 发现。", "命名/学习/事件服务默认关闭；启用配置不证明 agent、模型或通知消费者在线。"].forEach((text) => list.append(el("li", text)));
   checks.append(list); p.append(checks); return p;
 }
 async function healthView() {
   const health = await api("health"),
     p = panel("本地服务与接入边界");
   p.append(
-    badge("数据库 " + health.database, "ok"),
+    badge("数据库 " + (health.database === "ok" ? "可读" : health.database || "未知"), health.database === "ok" ? "ok" : ""),
     el(
       "p",
-      "当前模式：仅本机单用户、回环监听。导入NAS镜像不会开放LAN访问；用户已有授权SSH回环隧道可作为访问候选，真实部署仍需核验。",
+      sessionMode === "authenticated_https" ? "当前模式：已认证 HTTPS 管理。会话认证只证明当前访问身份，不代表 qB、Emby、agent 或 Discord 已连接。" : "当前模式：仅本机单用户、回环监听。导入NAS镜像不会开放LAN访问；用户已有授权SSH回环隧道可作为访问候选，真实部署仍需核验。",
       "notice",
     ),
   );
@@ -2274,7 +2563,7 @@ async function healthView() {
     ["命名自动入队", configured("automatic_naming"), "默认关闭；启用不等于agent在线或模型已调用"],
     ["目录 / NFO 局部证据候选", "已实现", "用户明确选目录；候选不授予执行权限"],
     ["TVDB / 在线元数据搜索", "未实现", "无外部元数据接入"],
-    ["LAN管理身份认证", "未实现；仅回环", "已有授权SSH隧道是访问候选，未验真实部署"],
+    ["管理访问身份", sessionMode === "authenticated_https" ? "已启用独立账号 / HTTPS 会话" : "本机单用户 / 无登录", "以当前 session 返回模式为准；真实NAS与客户端信任仍需部署者核验"],
     ["Docker / 真实 NAS", "支持离线镜像包", "CI可验构建与配置；真实NAS部署待验"],
   ].forEach((v) => row(t.body, v));
   p.append(
@@ -2488,6 +2777,12 @@ class ProposalEditor {
     this.proposal = proposal;
     this.node = panel("2 · 有限范围与新版本草稿");
     this.node.dataset.proposalEditor = "true";
+    draftable(this.node, "proposal-draft", () => ({ fields: draftFields(this.node), scopeWasDeclared: this.scopeCheck.checked }), saved => {
+      if (this.proposal.state !== "pending") return false;
+      if (restoreFields(this.node, saved.fields) === false) return false;
+      this.scopeCheck.checked = false; this.scopeCheck.dispatchEvent(new Event("change", { bubbles: true }));
+      changed();
+    });
     const r = proposal.input.rule,
       grid = el("div", undefined, "grid"),
       f = (this.fields = {});

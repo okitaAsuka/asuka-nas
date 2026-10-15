@@ -67,6 +67,13 @@ try:
         expect(page.locator('[name=batch_episode]').nth(0)).to_have_value('1')
         output=page.locator('[data-batch-preview=true]');confirm=page.get_by_role('button',name='人工批准本次命名方案')
         expect(confirm).to_be_disabled();expect(output).to_be_empty()
+        # Field errors are announced/focused and clear on correction; no stale approval survives.
+        season=page.locator('[name=batch_season]');season.fill('0')
+        page.get_by_role('button',name='预览完整整理表').click()
+        expect(season).to_have_attribute('aria-invalid','true');expect(season).to_be_focused()
+        expect(page.locator('[data-batch-status=true]')).to_have_attribute('role','alert')
+        season.fill('4');expect(season).not_to_have_attribute('aria-invalid','true')
+        expect(confirm).to_be_disabled()
         def run_preview():page.get_by_role('button',name='预览完整整理表').click();expect(output).to_contain_text('3 个入库文件')
         run_preview();expect(confirm).to_be_disabled();page.locator('[name=naming_approval]').focus();page.keyboard.press('Space');expect(confirm).to_be_enabled()
         page.locator('[name=batch_display_name]').evaluate('(n)=>n.value="silent"');confirm.click();expect(confirm).to_be_disabled()
