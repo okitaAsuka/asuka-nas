@@ -99,6 +99,7 @@ with tempfile.TemporaryDirectory(prefix='asuka-ui-nss-tools-') as tools:
             assert fixture_state()['approved']
             click('健康与接入')
             expect(page.locator('#view')).to_contain_text('当前模式：已认证 HTTPS 管理')
+            expect(page.locator('.setup-guide')).to_contain_text('当前使用独立 HTTPS 会话')
             assert '未知' in page.locator('#view').inner_text()
             click('退出登录')
             expect(page.get_by_role('heading',name='欢迎回到 asuka')).to_be_visible()
