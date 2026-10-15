@@ -471,6 +471,10 @@ func accessTestCertificate(t *testing.T, c ManagementAccessConfig, host string, 
 	if err = os.WriteFile(c.TLSKeyFile, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: priv}), 0600); err != nil {
 		t.Fatal(err)
 	}
+	// 仅测试公开 CA；浏览器 harness 只允许在显式 disposable CI 中临时信任。
+	if err = os.WriteFile(filepath.Join(filepath.Dir(c.TLSCertFile), "synthetic-ca.crt"), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER}), 0600); err != nil {
+		t.Fatal(err)
+	}
 	roots := x509.NewCertPool()
 	roots.AddCert(ca)
 	return roots

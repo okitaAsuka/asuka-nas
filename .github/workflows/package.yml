@@ -30,7 +30,11 @@ jobs:
           assert {p.name for p in Path('.').iterdir()} == {'image.tar', 'compose.yaml', 'config.template.json', 'credentials.env.template', '.env', 'DEPLOY.md', 'VERSION.json', 'SHA256SUMS'}
           config = json.loads(Path('config.template.json').read_text())
           assert config['subscriptions'] == []
+          assert config['management'] == {'enabled': False}
           assert not config['events']['enabled'] and not config['learning']['enabled'] and not config['learning']['automatic_naming']
+          credentials = [line for line in Path('credentials.env.template').read_text().splitlines() if line and not line.startswith('#')]
+          assert all('=' in line and not line.split('=', 1)[1] for line in credentials)
+          assert 'ASUKA_NAS_MANAGEMENT_PASSWORD_HASH=' in credentials
           assert not meta['real_nas_verified'] and not meta['arm64_runtime_verified']
           print('PASS final SHA, artifact whitelist, default-disabled templates; no user configuration/media/SQLite in package')
           PY_CHECK

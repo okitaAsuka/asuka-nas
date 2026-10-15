@@ -8,7 +8,9 @@ asuka-nas -serve -config /absolute/path/config.json
 # 可选 -listen 127.0.0.1:其它端口 或 [::1]:端口
 ```
 
-`-serve` 同时运行 RSS/job 循环；`-run` 仅运行 daemon，无管理端口。两者与 rules CLI 使用同一实例锁，锁先于可写 SQLite 打开/迁移。仅允许 IP 字面量回环地址，禁止 `0.0.0.0`、`::`、LAN IP、域名。纯本机单用户是明确的信任边界；管理面目前没有用户登录；NAS另有默认关闭的专用回环认证只读事件服务，凭据不复用管理nonce，见 NOTIFICATIONS.md。不要通过反向代理或 Docker 端口映射暴露管理面。用户已有授权SSH可建立仅自己使用、同端口回环绑定的隧道（见PACKAGING.md）；不提供给他人，不声称真实NAS/SSH已验。网络部署需另行实现身份认证、TLS 和权限，不是“内网即安全”。
+`-serve` 同时运行 RSS/job 循环；`-run` 仅运行 daemon，无管理端口。两者与 rules CLI 使用同一实例锁，锁先于可写 SQLite 打开/迁移。**默认模式**仅允许 IP 字面量回环地址，禁止 `0.0.0.0`、`::`、LAN IP、域名；它是无登录的本机单用户边界，不能通过反向代理或 Docker 映射暴露。已有授权SSH的同端口回环隧道仍可选，真实NAS/SSH未验。
+
+**显式 HTTPS 模式**已实现：`management.enabled:true` 与 `-serve` 同时满足、部署者提供可信证书/私钥及独立口令 verifier 时，才绑定配置中的明确地址。不能同时传 `-listen`；不复用 event/learning bearer，不信任 forwarded headers，不接受明文 HTTP。完整配置、session/login/logout、cookie/CSRF、错误及 UI hooks 见 [MANAGEMENT_ACCESS_CONTRACT.md](MANAGEMENT_ACCESS_CONTRACT.md)，部署前提见 [PACKAGING.md](PACKAGING.md)。登录UI的整合验收以最终集成SHA为准。默认关闭的事件/learning服务仍只回环，不随管理模式扩大，见 NOTIFICATIONS.md。
 
 ## 操作
 
@@ -21,10 +23,12 @@ asuka-nas -serve -config /absolute/path/config.json
 
 ## API（本机 /api 与独立只读/有限结果回传 /v1）
 
-所有响应 `no-store`，无 CORS。GET `/api/session` 返回进程内 CSRF nonce；POST 必须精确 Host、Origin、`Content-Type: application/json` 和 `X-CSRF-Nonce`。拒绝跨站 fetch；CSP 禁止内联脚本/框架嵌入。nonce 不持久化、不充当部署鉴权 token。请求体64KiB，写操作最多1个在途，多余429；领域错误409（固定码，原始异常不出站）。读列表有上限；写操作用旧版本拒绝过期操作。
+所有响应 `no-store`，无 CORS。默认回环模式 GET `/api/session` 保留进程内 CSRF nonce，并增加 mode/authenticated。HTTPS 模式匿名 session 只返回未登录状态；登录后 csrf 独立绑定有限会话，其他 API 无会话即401。业务 POST 必须精确 Host、Origin、`Content-Type: application/json` 和当前 `X-CSRF-Nonce`。拒绝跨站 fetch；CSP 禁止内联脚本/框架嵌入。业务请求体64KiB、写操作最多1个在途；login/logout 为4KiB、登录另有有界节流。领域错误409、鉴权错误见管理合同，均不输出原始异常。退出/401/重启后不得自动重放业务 POST；已经批准的冻结意图仍独立恢复。
 
 | 方法/路径 | 作用 |
 |---|---|
+| GET /api/session | 默认回环 nonce，或 HTTPS 模式认证状态/当前会话 nonce/绝对到期时间 |
+| POST /api/login、/api/logout | 仅显式 HTTPS 模式；独立人类身份、会话建立/撤销，精确合同见上文链接 |
 | GET /api/health | 数据库、能力支持/配置、未知运行状态；不做外部探测 |
 | GET/POST /api/subscriptions | 来源引用列表；新增(version=0)或CAS编辑 |
 | POST /api/source-retry | id+version，解除来源退避并审计 |

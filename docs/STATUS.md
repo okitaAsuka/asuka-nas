@@ -1,6 +1,6 @@
-# 当前状态 / 2026-10-13
+# 当前状态 / 2026-10-15
 
-当前行为以本节、最新合同与代码为准；后文是历史里程碑，不是当前未实现清单。NAS领域schema8、控制扩展v2、parser v4；均为未部署开发库迁移，不授权生产库升级。当前工作台功能分支为 codex/nas-frontend-workflow-20261013（基线 codex/nas-naming-ui-20261013 / 4dce6f1），最终 SHA、CI 和包校验由交付回复绑定。
+当前行为以本节、最新合同与代码为准；后文是历史里程碑，不是当前未实现清单。NAS领域schema8、控制扩展v2、parser v4；均为未部署开发库迁移，不授权生产库升级。当前集成分支 `codex/nas-integrated-20261015`，基线 `f19f1d275c1f755aca8c4024243fe089fb810208`。已整合功能候选 `a440497ace6da2328625f4fcc8e91b2dcb7264cb` 与架构候选 `1dd1c33e2db67dc8346b2c7616b1da15a4bb4d2d`；最终 UI 尚待父任务提供冻结候选，不把中间 UI 合入。最终 SHA、CI 和包校验由交付回复绑定。
 
 | 能力 | 当前状态 |
 | --- | --- |
@@ -16,16 +16,19 @@
 | 日常工作台 / 可识别任务 | 已实现；有界只读计数、摘要搜索/阶段分页、命名/证据/恢复直达、接入配置引导；生产浏览器和CI结果由交付回复绑定，见FRONTEND_WORKFLOW_EVIDENCE.md |
 | 健康页 | 区分支持、配置和未知运行状态；配置开启不证明消费者/模型/Discord connected |
 | 标准 amd64 离线包 | 包装提交已整合；版本SHA/镜像ID/校验及公开模板白名单；CI构建配置门，真实NAS仍未验 |
-| LAN管理登录/鉴权、TVDB/在线元数据 | 未实现；只回环。已有授权SSH隧道仅访问候选，不是已验部署 |
+| HTTPS 管理登录/鉴权 | 已实现独立人类口令 verifier、Secure/HttpOnly/SameSite cookie、12h/16会话上限、独立CSRF与有界节流；显式 opt-in，默认回环保持。UI最终整合/可信CA实际浏览器验收以集成证据为准，不等于已部署LAN |
+| TVDB/在线元数据 | 未实现；已有本地目录/NFO候选与离线人工fallback |
 | 真实RSS/qB/Emby/模型/Discord/NAS/SSH、arm64 | 未部署验收；fake闭环与CI不能代替真实环境 |
 
-集成来源：UI e3d3ef610f626b2de8298e1b682044cd48857652；NAS后端17acfcfe0849f762bfe16f3cc2eb29e20bc920bf只接3f0b933后增量；包装41be7726bb2b8900bf1ca77761773ef335215a1d保留e4bdde7后的全部五提交；agent原配套dd5b2bb06c17845406e7bce986146e1dd6030915后，按父授权小修目录/显示名预检与回归；agent成本代码80834dcf664af482b8aeaf38351222bd5efe6c17；其后CI专用提交的最终配套SHA由交付回复绑定。没有main merge/PR/部署或创建凭据。
+本轮功能/架构归属和覆盖矩阵见 [FEATURE_CLOSURE_EVIDENCE.md](FEATURE_CLOSURE_EVIDENCE.md)、[ARCHITECTURE_20261015.md](ARCHITECTURE_20261015.md)。原基线已包含 UI e3d3ef6、NAS后端17acfcf、包装41be772等前期工作。本轮不改 asuka-agent；父任务指定配套 `e25a122488144067e6b91e935e73569db48a9037`，不以旧历史版本推断其现状。没有main merge/部署或创建实际访问凭据。
 
 验证入口：make verify（Go1.26.9格式/vet/race/build及Python预检），make verify-ui（保留原浏览器门并加入命名生产API测试），make package-test，make package-nas。本机SQLite/libc官方依赖下载Forbidden，本轮生产Go/浏览器由已授权CI执行；未执行或失败不能计为通过。最终运行结果见交付回复及[NAMING_ASSISTANCE_UI_EVIDENCE.md](NAMING_ASSISTANCE_UI_EVIDENCE.md)。CI归档生产浏览器日志/截图及绑定最终SHA的离线包。
 
-当前接口见[LOCAL_MANAGEMENT.md](LOCAL_MANAGEMENT.md)、[API.md](API.md)；命名边界见[NAMING_ASSISTANCE_HANDOFF.md](NAMING_ASSISTANCE_HANDOFF.md)；后端最终12场景跨仓证据见[NAMING_ASSISTANCE_EVIDENCE.md](NAMING_ASSISTANCE_EVIDENCE.md)。交付以极空间GUI导入image.tar为主，外层包先解包；NAS CLI/Compose/SSH与GUI host模式未验。用户确认candy是Caddy外网反代，配置/证书/权限未检查，不改或复用，不默认公开管理页。Compose及已有授权回环SSH仅可选参考，见[PACKAGING.md](PACKAGING.md)。规则候选合同见[RULE_PROPOSALS_FRONTEND_HANDOFF.md](RULE_PROPOSALS_FRONTEND_HANDOFF.md)，既有父审证据见[RULE_REVIEW_UI_EVIDENCE.md](RULE_REVIEW_UI_EVIDENCE.md)。
+当前接口见[LOCAL_MANAGEMENT.md](LOCAL_MANAGEMENT.md)、[API.md](API.md)；HTTPS session/login/logout 与配置契约见 [MANAGEMENT_ACCESS_CONTRACT.md](MANAGEMENT_ACCESS_CONTRACT.md)。命名边界见[NAMING_ASSISTANCE_HANDOFF.md](NAMING_ASSISTANCE_HANDOFF.md)；后端最终12场景跨仓证据见[NAMING_ASSISTANCE_EVIDENCE.md](NAMING_ASSISTANCE_EVIDENCE.md)。交付以极空间GUI导入image.tar为主，外层包先解包；NAS CLI/Compose/SSH、GUI host/bridge 能力、证书信任与端口映射未验。用户报告极空间 Z4S-2LPU，后缀和固件未核实。用户确认candy是Caddy外网反代，配置/证书/权限未检查，不改或复用，不默认公开管理页。部署者自行提供可信 TLS、独立 verifier 与明确配置；包不含证书/私钥/verifier/密码，见[PACKAGING.md](PACKAGING.md)。规则候选合同见[RULE_PROPOSALS_FRONTEND_HANDOFF.md](RULE_PROPOSALS_FRONTEND_HANDOFF.md)，既有父审证据见[RULE_REVIEW_UI_EVIDENCE.md](RULE_REVIEW_UI_EVIDENCE.md)。
 
 ## 历史阶段记录（不作为当前功能矩阵）
+
+以下“未实现 LAN 鉴权/没有 HTTP/UI”等语句仅描述当时阶段；当前能力以顶部和上述最新合同为准。
 
 ## 部署准备里程碑 / 2026-10-12
 

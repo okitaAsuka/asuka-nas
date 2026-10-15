@@ -6,6 +6,9 @@
   "qb_url": "http://127.0.0.1:8080",
   "emby_url": "http://127.0.0.1:8096",
   "subscriptions": [],
+  "management": {
+    "enabled": false
+  },
   "events": {
     "enabled": false,
     "listen": "127.0.0.1:8788",

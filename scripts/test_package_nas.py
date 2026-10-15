@@ -24,6 +24,13 @@ class PackagingTest(unittest.TestCase):
             target = self.root / name
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(name)
+        self.config = {'management': {'enabled': False}, 'subscriptions': [],
+                       'events': {'enabled': False},
+                       'learning': {'enabled': False, 'automatic_naming': False}}
+        (self.root / 'deploy/offline/config.template.json').write_text(json.dumps(self.config))
+        (self.root / 'deploy/offline/credentials.env.template').write_text(
+            'ASUKA_NAS_QB_USERNAME=\nASUKA_NAS_QB_PASSWORD=\nASUKA_NAS_EMBY_TOKEN=\n'
+            'ASUKA_NAS_MANAGEMENT_PASSWORD_HASH=\n')
         self.git('init', '-q')
         self.git('add', '.')
         self.git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'fixture')
@@ -75,6 +82,8 @@ class PackagingTest(unittest.TestCase):
         self.assertEqual(set(files), {'image.tar', 'compose.yaml', 'config.template.json',
                                      'credentials.env.template', 'DEPLOY.md', '.env', 'VERSION.json', 'SHA256SUMS'})
         self.assertNotIn(b'fixture-secret-must-not-be-packaged', b''.join(files.values()))
+        self.assertEqual(json.loads(files['config.template.json'])['management'], {'enabled': False})
+        self.assertTrue(all(not line.split('=', 1)[1] for line in files['credentials.env.template'].decode().splitlines()))
         for line in files['SHA256SUMS'].decode().splitlines():
             expected, name = line.split('  ')
             self.assertEqual(expected, hashlib.sha256(files[name]).hexdigest())
@@ -100,6 +109,31 @@ class PackagingTest(unittest.TestCase):
             self.env['ARCH'] = arch
             with self.assertRaises(ValueError):
                 self.package()
+        self.assertEqual(self.calls, [])
+
+    def test_public_template_rejects_enabled_access_and_inline_secrets(self):
+        for management in ({'enabled': True}, {'enabled': False, 'password': 'synthetic'},
+                           {'enabled': False, 'tls_key_file': '/private/server.key'}, {}):
+            with self.subTest(management=management):
+                self.config['management'] = management
+                (self.root / 'deploy/offline/config.template.json').write_text(json.dumps(self.config))
+                self.git('add', '.')
+                self.git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'invalid public config')
+                with self.assertRaises(ValueError):
+                    self.package()
+        self.assertEqual(self.calls, [])
+
+    def test_public_credential_template_rejects_values_unknown_and_duplicate_keys(self):
+        path = self.root / 'deploy/offline/credentials.env.template'
+        original = path.read_text()
+        for content in (original.replace('PASSWORD_HASH=', 'PASSWORD_HASH=synthetic-verifier'),
+                        original + 'PRIVATE_KEY=\n', original + 'ASUKA_NAS_QB_PASSWORD=\n', ''):
+            with self.subTest(content=content):
+                path.write_text(content)
+                self.git('add', '.')
+                self.git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'invalid public credentials')
+                with self.assertRaises(ValueError):
+                    self.package()
         self.assertEqual(self.calls, [])
 
     def test_explicit_offline_cache_and_invalid_cache(self):

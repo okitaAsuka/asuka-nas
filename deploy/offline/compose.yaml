@@ -1,4 +1,4 @@
-# Linux NAS 候选：明确采用 host 网络，保持所有回环与 Host/Origin 保护。
+# Linux NAS 默认 host/回环候选；HTTPS 另需明确私密配置、可信 TLS 只读挂载和独立 verifier。
 services:
   asuka-nas:
     image: ${NAS_IMAGE:?use the packaged .env}
@@ -10,7 +10,7 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     restart: "no"
-    command: ["-serve", "-listen", "127.0.0.1:8787", "-config", "/config/config.json"]
+    command: ["-serve", "-config", "/config/config.json"]
     env_file: ./credentials.env
     volumes:
       - type: bind

@@ -12,6 +12,11 @@ verify-ui:
 	python3 -B tests/naming_assistance_layout_browser.py
 	NAS_BROWSER_TEST=1 go test -race -count=1 ./internal/nas -run '^Test(BrowserProductLoop|IndependentBrowserPreviewOwnership|LibraryCandidateBrowserLoop|BatchOrganizerBrowserLoop|RuleProposalBrowserLoop|NamingAssistanceBrowserLoop|FrontendWorkflowBrowserLoop)$$' -v
 
+# 仅一次性 Linux 测试账户；需显式 NAS_AUTH_DISPOSABLE_TRUST=1，绝不关闭 TLS 验证。
+.PHONY: verify-auth
+verify-auth:
+	NAS_AUTH_BROWSER_TEST=1 go test -race -count=1 ./internal/nas -run '^TestHTTPSManagementBrowserLoop$$' -v
+
 # 参数通过环境读取，不拼接到 shell 命令；默认仅本机构建和 save。
 export VERSION ARCH PACKAGE_OUT MODULE_CACHE
 .PHONY: package-nas package-test

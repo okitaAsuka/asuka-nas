@@ -51,13 +51,13 @@ Compose、配置/凭据模板、.env（无个人路径）、部署说明、VERSI
 
 先在用户电脑核对外层.sha256并解包，检查SHA256SUMS及VERSION.json的源码SHA/平台/image。再通过极空间Docker GUI镜像导入功能选择 **image.tar**；具体按钮与host模式支持未实测。标准包是linux/amd64，不能根据品牌假定NAS架构；arm64候选未验。
 
-从config.template.json另建私密config.json，填已有授权服务和真实路径，保留events/learning/automatic_naming关闭。GUI字段按下表核对：
+从config.template.json另建私密config.json，填已有授权服务和真实路径，先保留management/events/learning/automatic_naming关闭。模板不会带证书、私钥、verifier或密码。GUI字段按下表核对：
 
 | GUI 项目 | 候选设置 / 要填写的值 | 边界 |
 | --- | --- | --- |
 | 镜像 / 容器名 | 导入image.tar；镜像名称见VERSION.json；新建独立asuka-nas实例 | 不修改现有qB/Emby/Caddy；同状态库只运行一实例 |
-| 网络 | 若GUI支持Linux host，可作当前回环候选 | GUI能力未核验；只有bridge时，映射8787不能访问容器127.0.0.1，当前尚不能直接LAN管理 |
-| 端口 | host不填ports映射；管理仅127.0.0.1:8787；8788/8789默认关闭 | 不设公网/LAN发布或Caddy反代来绕过鉴权 |
+| 网络 | 默认模板为Linux host/回环候选 | GUI能力未核验；bridge映射不能访问容器127.0.0.1。需要LAN管理时另行满足下节HTTPS条件 |
+| 端口 | 默认host不填ports映射；管理仅127.0.0.1:8787；8788/8789默认关闭 | 不用映射或Caddy将无登录的回环入口公开；HTTPS必须显式配置 |
 | 配置卷 | 已有私密config.json → /config/config.json，只读 | 若GUI只能挂目录，私密配置目录 → /config只读；所选用户须已有读取权 |
 | 状态卷 | 已有独立可写状态目录 → /data/asuka-nas | 保存SQLite；须已有权限，不覆盖现有库或擅自迁移生产库 |
 | 媒体卷 | 下载/库共同父目录 → /media；目标库可写 | 一次挂共同父目录；同设备且不重叠。容器路径须精确匹配qB save_path及Emby Path；示例不是实际路径断言 |
@@ -65,18 +65,42 @@ Compose、配置/凭据模板、.env（无个人路径）、部署说明、VERSI
 | 容器用户 | 镜像默认65532:65532；GUI如支持可选已有授权非root UID/GID | 配置读、状态写、源读和库链接权限须已具备，不自动chown/改媒体权限 |
 | Entrypoint | 保留/usr/local/bin/asuka-nas | 不替换为shell或反代 |
 | 首次只校验参数 | -config /config/config.json | 不加-run/-serve；不访问上游、不打开状态库；校验完成退出是正常行为 |
-| 经用户审查后的服务参数候选 | -serve -listen 127.0.0.1:8787 -config /config/config.json | 会启动daemon并访问授权上游；不是无副作用UI模式，本轮不启动真实NAS |
+| 经用户审查后的服务参数候选 | -serve -config /config/config.json | 缺省仍监听127.0.0.1:8787；HTTPS由management配置决定。会启动daemon并访问授权上游，不是无副作用UI模式 |
 | 重启 / 安全选项 | 首次不自动重启；GUI如支持，保留只读根、cap_drop ALL和no-new-privileges | 功能支持未核验；不开特权/root绕过失败 |
 
-host只使监听落在NAS回环，仍无LAN登录/鉴权。若极空间GUI不支持当前条件，管理访问方案尚待父设计；本轮不扩大监听、不新增Caddy/LAN实现，不等待SSH探查。本机浏览器/已有授权SSH只是后续可选访问候选，均未验。
+默认host模板只使监听落在NAS回环。可选HTTPS管理已实现独立登录、会话与CSRF；最终登录UI集成和真实极空间GUI/客户端信任仍需验收。本轮未更改NAS监听、网络或Caddy；不把fixture/CI通过称作部署成功。
+
+## 可选 HTTPS 管理：部署者明确启用
+
+仅当部署者已审查访问范围、GUI能力及客户端证书信任时，才修改自己的私密config.json：
+
+```json
+"management": {
+  "enabled": true,
+  "listen": "0.0.0.0:8787",
+  "origin": "https://nas.example.test:8787",
+  "username": "admin",
+  "password_hash_env": "ASUKA_NAS_MANAGEMENT_PASSWORD_HASH",
+  "tls_cert_file": "/run/asuka-tls/server.crt",
+  "tls_key_file": "/run/asuka-tls/server.key"
+}
+```
+
+这是待填写的片段；example.test不是已有NAS地址。origin须精确等于浏览器使用的HTTPS地址，无尾斜杠/路径/查询，DNS小写，默认443省略端口；证书须匹配该主机名/IP、在有效期内并允许serverAuth。listen只接受明确IP与非零端口，允许回环/私有/容器通配IP，不接受公网IP。若由用户选择bridge模式，须自行验证GUI端口映射与origin一致；host监听通配IP会扩大可达范围，不能不经审查直接套用。默认模板不自动做这些变更。
+
+部署者另行提供已有可信TLS证书和私钥，并以只读卷挂到上述路径，让既有非root容器用户可读；公开包没有此挂载或证书文件。客户端必须正常信任证书链，**不得忽略浏览器证书警告或关闭证书验证**。服务不签发证书、不安装信任、不接入或修改已有Caddy，也不相信Forwarded头。
+
+在GUI环境变量或私密credentials.env里提供独立的人类口令verifier，引用名为ASUKA_NAS_MANAGEMENT_PASSWORD_HASH。格式为`pbkdf2-sha256$600000$<salt>$<derived-key>`：PBKDF2-HMAC-SHA256、600000–1000000次、16–64字节salt、32字节derived-key；两段均为无padding标准Base64。登录密码12–1024字节UTF-8，用户名1–64字节ASCII字母数字及`_.-`且首字符为字母数字。不要填明文密码、复用events/learning身份，或把verifier写入JSON/归档。Compose env_file按字面保留其中`$`（必要时用单引号包住值），部署者核对实际注入结果；本流程不创建凭据。
+
+启用后使用`-serve -config /config/config.json`，不能同时显式传`-listen`。配置/证书/verifier错误会在监听前失败；不回退HTTP。`-run`不启动管理入口，纯配置校验不会验证运行时秘密或客户端信任。登录会话最多12小时、只在内存中，重启/退出失效；重新登录后必须重新读取事实、预览并确认，不自动重发旧操作。完整接口与固定错误码见源码的docs/MANAGEMENT_ACCESS_CONTRACT.md。
 
 ## 可选 NAS CLI / Compose 参考：host 与回环
 
 以下仅在用户已有NAS CLI/Compose权限时参考，GUI导入不要求这些命令。需要Linux amd64、兼容Docker Compose v2（支持pull_policy与create_host_path）、
 Linux 5.6+ openat2 及 /proc/self/fd。NAS 厂商 GUI 只支持 bridge 时不能直接采用本候选。
 普通 bridge 下 8787/8788/8789 监听的是容器回环，ports 映射不可使它们可达。
-host 网络让监听保持 NAS 回环，不提供 LAN 管理身份认证。端口冲突须先检查，不能停用原服务。
-管理页保持精确 Host/Origin、CSRF 保护；不加反代、端口映射或更改业务监听。
+默认host网络让监听保持NAS回环；本节不启用可选HTTPS。端口冲突须先检查，不能停用原服务。
+管理页保持精确Host/Origin、CSRF保护；不通过反代或端口映射绕过模式边界。
 
 ```sh
 sha256sum -c asuka-nas-v0.1.0-linux-amd64.tar.gz.sha256
@@ -115,7 +139,7 @@ docker compose up -d --pull never
 Compose 只定义 asuka-nas，restart 默认 no。-serve 启动管理页与 daemon，会访问授权配置里的服务；
 不是只看 UI 的无副作用模式。events/learning 默认关闭，不注入它们的身份。
 需要使用时必须由父任务另行确认已有独立身份、消费者位置和安全合同；不同主机上的 agent
-无法访问 NAS 回环服务。LAN 监听/鉴权扩展留给业务 owner，不在打包层绕过。
+无法访问NAS回环服务。人类HTTPS管理会话不授予这两个服务身份权限，也不把它们改为LAN监听。
 
 管理页可在 NAS 本机浏览器访问 http://127.0.0.1:8787。
 若 NAS 已有授权 SSH 服务，可在用户电脑建立保持相同端口的回环隧道：

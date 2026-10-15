@@ -3,8 +3,7 @@
 CLI 默认只检查配置；`-run` 开始 RSS/job 轮询。Docker 默认 CMD 为
 `-run -config /config/config.json`，用户为 `65532:65532`，没有 EXPOSE 或管理端口映射。
 纯校验必须显式覆盖参数为 `-config /config/config.json`；它不会打开数据库或访问上游。
-中文前端仍仅允许回环 IP、本机单用户访问。容器内回环端口不能直接用于远程 NAS 管理；
-不要扩大监听、映射管理端口或用代理绕过该边界。LAN管理仍需要独立身份认证设计。用户已有授权SSH的同端口回环隧道是个人访问候选，见PACKAGING.md；真实NAS/SSH未验，导入镜像不开放LAN管理。
+默认管理模式仍仅允许回环 IP、本机单用户访问。容器内回环端口不能直接用于远程 NAS 管理；不要用端口映射或反代绕过该边界。已实现独立的显式 HTTPS 模式，需 `management.enabled:true`、`-serve`、部署者提供的可信 TLS/独立口令 verifier 和明确 origin/监听；不能同时传 `-listen`。客户端必须正常信任证书，不能忽略警告；无 HTTP 降级。配置、挂载及 GUI 前提见 PACKAGING.md，鉴权细节见 MANAGEMENT_ACCESS_CONTRACT.md。已有授权SSH仍是默认模式的个人访问候选；导入镜像不自动启用任何 LAN 管理。
 
 ## 验证与 CI
 
@@ -13,7 +12,7 @@ CLI 默认只检查配置；`-run` 开始 RSS/job 轮询。Docker 默认 CMD 为
 `make verify-ui` 另外实际运行 Chromium；先安装 `tests/requirements.txt` 和
 `python3 -m playwright install --with-deps chromium`，或指定 `CHROMIUM_PATH`。
 已有 `.github/workflows/ci.yml` 复用这两个入口，Python 安装在验证入口之前。
-当前没有可用独立远端仓库，本轮只核对配置并在本地执行入口，未声称 GitHub Actions 通过。
+已有 GitHub CI 验证开发候选，结果必须绑定交付回复中的精确 SHA；本地依赖下载失败不算通过。实际 NAS、GUI/证书信任/上游兼容仍独立待验。
 
 ## 只读预检
 

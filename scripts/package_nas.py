@@ -21,6 +21,29 @@ def capture(args):
     return subprocess.check_output(args, text=True).strip()
 
 
+def validate_public_templates(root):
+    # 交付模板保持关闭且无秘密；实际 TLS/人类 verifier 只由部署者在包外提供。
+    config = json.loads((root / 'deploy/offline/config.template.json').read_text())
+    if (config.get('management') != {'enabled': False} or config.get('subscriptions') != []
+            or config.get('events', {}).get('enabled') is not False
+            or config.get('learning', {}).get('enabled') is not False
+            or config.get('learning', {}).get('automatic_naming') is not False):
+        raise ValueError('public configuration must keep management/events/learning disabled')
+    expected = {'ASUKA_NAS_QB_USERNAME', 'ASUKA_NAS_QB_PASSWORD', 'ASUKA_NAS_EMBY_TOKEN',
+                'ASUKA_NAS_MANAGEMENT_PASSWORD_HASH'}
+    seen = set()
+    for line in (root / 'deploy/offline/credentials.env.template').read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        key, separator, value = line.partition('=')
+        if not separator or key not in expected or key in seen or value:
+            raise ValueError('public credential template must contain only empty approved references')
+        seen.add(key)
+    if seen != expected:
+        raise ValueError('public credential template references are incomplete')
+
+
 def package(root=ROOT, env=os.environ):
     version = env.get('VERSION') or capture(['git', '-C', str(root), 'rev-parse', '--short=12', 'HEAD'])
     arch = env.get('ARCH') or 'amd64'
@@ -40,6 +63,7 @@ def package(root=ROOT, env=os.environ):
         raise ValueError('PACKAGE_OUT must be a dedicated output directory')
     # 只构建已提交版本，避免脏树与元数据不符；非跟踪秘密永不进入构建上下文。
     run(['git', '-C', str(root), 'diff', '--quiet', 'HEAD'])
+    validate_public_templates(root)
     revision = capture(['git', '-C', str(root), 'rev-parse', 'HEAD'])
     name = f'asuka-nas-{version}-linux-{arch}'
     image = f'asuka-nas:{version}-linux-{arch}'
