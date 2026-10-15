@@ -15,7 +15,13 @@ let csrf = "",
   subscriptionCursor = "",
   ruleClues = null,
   activeLibraryScan = null,
-  focusAfterLoad = null;
+  focusAfterLoad = null,
+  sessionMode = "local_single_user",
+  authEpoch = 0,
+  sessionLocked = false,
+  sessionDraft = null,
+  loadingDraft = null;
+const pendingRequests = new Set();
 const names = {
   overview: "日常总览",
   jobs: "任务与入库",
@@ -49,6 +55,13 @@ const states = {
   not_connected: "未接入",
 };
 const errors = {
+  authentication_failed: "用户名或密码不正确，请重新核对。",
+  authentication_required: "会话已失效，请重新登录。未完成请求不会自动重发。",
+  authentication_unavailable: "认证服务暂不可用，请稍后手动重试。",
+  login_throttled: "登录尝试过于频繁。",
+  session_limit: "有效会话已达上限，请从其他已登录浏览器退出，或等待会话到期。",
+  origin_rejected: "页面地址与配置的访问地址不一致，请使用部署者提供的完整地址。",
+  https_required: "此入口需要可信 HTTPS，请核对访问地址与证书配置。",
   store_failed: "本地数据暂时无法读取，请稍后重新加载。",
   database_unavailable: "本地数据库暂时不可用，请核对部署后重新加载。",
   invalid_cursor: "分页位置不正确，请返回列表首页。",
@@ -157,33 +170,172 @@ function fail(err) {
   message.scrollIntoView({ block: "nearest", behavior: "instant" });
 }
 async function api(path, data, signal) {
-  let r;
+  if (sessionLocked && !["session", "login"].includes(path)) throw new Error("authentication_required");
+  const epoch = authEpoch, controller = new AbortController();
+  const abort = () => controller.abort();
+  if (signal?.aborted) controller.abort();
+  signal?.addEventListener("abort", abort, { once: true });
+  pendingRequests.add(controller);
   try {
-    r = await fetch("/api/" + path, {
-      method: data === undefined ? "GET" : "POST",
-      headers:
-        data === undefined
-          ? {}
-          : { "Content-Type": "application/json", "X-CSRF-Nonce": csrf },
-      body: data === undefined ? undefined : JSON.stringify(data),
-      credentials: "same-origin",
-      signal,
-    });
-  } catch (e) {
-    if (e.name === "AbortError") throw new Error("library_cancelled");
-    throw new Error("本地服务暂时不可达，请刷新重试。");
+    let r;
+    try {
+      r = await fetch("/api/" + path, {
+        method: data === undefined ? "GET" : "POST",
+        headers: data === undefined ? {} : {
+          "Content-Type": "application/json",
+          ...(path === "login" ? {} : { "X-CSRF-Nonce": csrf }),
+        },
+        body: data === undefined ? undefined : JSON.stringify(data),
+        credentials: "same-origin", signal: controller.signal,
+      });
+    } catch (e) {
+      if (e.name === "AbortError") throw new Error("library_cancelled");
+      throw new Error("本地服务暂时不可达，请刷新重试。");
+    }
+    let v;
+    try { v = await r.json(); } catch { throw new Error("服务返回了无法读取的响应。"); }
+    // 旧会话的迟到响应不能覆盖新登录，也不能恢复任何预览授权。
+    if (epoch !== authEpoch) throw new Error("authentication_required");
+    if (!r.ok) {
+      if (r.status === 401 && v.error === "authentication_required") lockSession(path !== "logout");
+      const error = new Error(v.error || "operation_failed");
+      const retry = r.headers.get("Retry-After");
+      if (r.status === 429 && /^\d+$/.test(retry || "")) error.retryAfter = Math.max(1, Number(retry));
+      throw error;
+    }
+    return v;
+  } finally {
+    pendingRequests.delete(controller);
+    signal?.removeEventListener("abort", abort);
   }
-  let v;
-  try {
-    v = await r.json();
-  } catch {
-    throw new Error("服务返回了无法读取的响应。");
-  }
-  if (!r.ok) throw new Error(v.error || "operation_failed");
-  return v;
 }
+// 仅在当前页面内存保留显式注册的非秘密编辑器。DOM/预览摘要/勾选授权绝不持久化。
+function draftable(node, key, capture, restore) {
+  node.dataset.draftKey = key;
+  node.draftAccess = { capture, restore };
+}
+function draftIdentity() { return JSON.stringify([tab, detailID, proposalSelection, subscriptionCursor]); }
+function captureDraft() {
+  const entries = [...view.querySelectorAll("[data-draft-key]")].map(n => [n.dataset.draftKey, n.draftAccess.capture()]);
+  return entries.length ? { identity: draftIdentity(), entries } : null;
+}
+function draftFields(node) {
+  return [...node.querySelectorAll("input[name], select[name], textarea[name]")]
+    .filter(n => !["checkbox", "password", "hidden"].includes(n.type) && !n.disabled)
+    .map(n => [n.name, n.value]);
+}
+function restoreFields(node, fields) {
+  const available = [...node.querySelectorAll("[name]")];
+  if (fields.some(([name, value]) => {
+    const input = available.find(n => n.name === name && !n.disabled);
+    return !input || ["checkbox", "password"].includes(input.type) || input.tagName === "SELECT" && ![...input.options].some(o => o.value === value);
+  })) return false;
+  for (const [name, value] of fields) {
+    const input = [...node.querySelectorAll("[name]")].find(n => n.name === name && !n.disabled);
+    if (!input || input.type === "checkbox" || input.type === "password") return false;
+    if (input.tagName === "SELECT" && ![...input.options].some(o => o.value === value)) return false;
+    input.value = value;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+}
+function restoreSessionDraft() {
+  const saved = sessionDraft; sessionDraft = null;
+  if (!saved) return;
+  const unrestored = [];
+  for (const [key, data] of saved.entries) {
+    const target = saved.identity === draftIdentity() && [...view.querySelectorAll("[data-draft-key]")].find(n => n.dataset.draftKey === key);
+    if (!target || target.draftAccess.restore(data) === false) unrestored.push([key, data]);
+  }
+  if (unrestored.length) {
+    const fallback = panel("未自动恢复的草稿");
+    fallback.append(el("p", "任务、来源或编辑通道已变化。以下仅保留原输入供人工核对，未载入当前方案。", "notice"), el("pre", JSON.stringify(unrestored, null, 2)));
+    draftable(fallback, "unrestored", () => unrestored, () => false);
+    view.prepend(fallback);
+  }
+  message.className = "notice";
+  message.setAttribute("role", "status");
+  message.textContent = "已重新读取当前状态。非秘密草稿已恢复或保留在下方；原预览、批准、范围声明与排序勾选已清除。请核对后重新预览，未自动重发任何操作。";
+}
+function acceptSession(value) {
+  sessionMode = value.mode || "local_single_user";
+  if (!["local_single_user", "authenticated_https"].includes(sessionMode)) throw new Error("未知的管理访问模式，请核对服务版本。");
+  if (sessionMode === "authenticated_https" && value.authenticated === false) { lockSession(false); return false; }
+  if (!value.csrf || value.authenticated === false || sessionMode === "authenticated_https" && value.authenticated !== true) throw new Error("会话响应不完整，请重新读取。");
+  csrf = value.csrf; sessionLocked = false;
+  $("#session-gate").hidden = true; $("#session-gate").replaceChildren();
+  $("#workspace-shell").hidden = false; $(".skip-link").hidden = false;
+  $("#logout").hidden = sessionMode !== "authenticated_https";
+  // 标识访问模式，不把认证成功等同于任何上游连接成功。
+  $(".local").replaceChildren(el("span", "", "dot"), document.createTextNode(sessionMode === "authenticated_https" ? "已认证管理会话" : "本机管理工作台"), el("small", "源文件保留 · 人工始终可继续"));
+  return true;
+}
+function lockSession(preserve = true) {
+  if (sessionLocked) return;
+  sessionDraft = preserve ? captureDraft() || loadingDraft : null;
+  loadingDraft = null;
+  csrf = ""; sessionLocked = true; sessionMode = "authenticated_https";
+  authEpoch++; generation++;
+  activeLibraryScan?.abort(); activeLibraryScan = null;
+  for (const request of pendingRequests) request.abort();
+  view.replaceChildren(); view.setAttribute("aria-busy", "false");
+  setBusy(false);
+  $("#workspace-shell").hidden = true; $(".skip-link").hidden = true;
+  renderLogin(preserve);
+}
+function renderLogin(expired) {
+  const gate = $("#session-gate"); gate.hidden = false; gate.replaceChildren();
+  document.title = "登录 · asuka 番剧工作台";
+  const surface = el("div", undefined, "login-surface"), story = el("div", undefined, "login-story");
+  story.append(el("div", "ASUKA / YOUR LOCAL MEDIA ARCHIVE", "eyebrow"), el("h2", "热爱的故事，\n安心收藏。"), $("#landscape-art").content.cloneNode(true), el("p", "下载与整理继续由 NAS 处理。\n登录后，回到你的番剧工作台。"));
+  const form = el("form", undefined, "login-form"), heading = el("h1", expired ? "会话已结束" : "欢迎回到 asuka");
+  heading.id = "session-title"; heading.tabIndex = -1;
+  form.append(el("div", "SECURE WORKSPACE", "eyebrow"), heading,
+    el("p", expired ? "请重新登录。当前页面的非秘密草稿只保留在内存，关闭或刷新页面会丢失。" : "使用部署者为此工作台配置的独立账号。", "muted"));
+  const user = field(form, "用户名", "login_username"); user.autocomplete = "username"; user.required = true; user.maxLength = 64;
+  const password = field(form, "密码", "login_password", "", "password"); password.autocomplete = "current-password"; password.required = true;
+  const status = el("p", undefined, "login-status"); status.id = "login-status"; status.setAttribute("role", "status");
+  password.setAttribute("aria-describedby", status.id);
+  const submit = button("登录工作台", () => {}, true); submit.type = "submit";
+  form.append(status, submit, el("p", "请使用部署者提供的可信 HTTPS 地址。此页面不提供注册或重设密码。", "login-help"));
+  if (expired) form.append(el("p", "已发出的操作可能已被服务器接收。登录后先核对持久状态；旧预览和批准均需重新确认。", "notice"));
+  let submitting = false, retryAt = 0;
+  form.onsubmit = async e => {
+    e.preventDefault();
+    if (submitting || Date.now() < retryAt) return;
+    submitting = true; submit.disabled = true; user.disabled = true; password.disabled = true;
+    password.removeAttribute("aria-invalid"); status.className = "login-status muted"; status.setAttribute("role", "status"); status.textContent = "正在验证会话…";
+    const epoch = authEpoch;
+    try {
+      const value = await api("login", { username: user.value, password: password.value });
+      password.value = "";
+      if (epoch !== authEpoch || !gate.isConnected) return;
+      if (!acceptSession(value)) return;
+      authEpoch++;
+      syncNavigation(); focusAfterLoad = "#heading";
+      await load();
+    } catch (error) {
+      if (epoch !== authEpoch) return;
+      status.className = "login-status error"; status.setAttribute("role", "alert");
+      status.textContent = errors[error.message] || "登录未完成，请核对服务后手动重试。";
+      if (error.retryAfter) {
+        retryAt = Date.now() + error.retryAfter * 1000;
+        status.textContent += ` 请至少等待 ${error.retryAfter} 秒后手动重试。`;
+        setTimeout(() => { if (epoch === authEpoch && form.isConnected) submit.disabled = false; }, Math.min(error.retryAfter * 1000, 2147483647));
+      }
+      if (error.message === "authentication_failed") password.setAttribute("aria-invalid", "true");
+      password.disabled = false; password.focus();
+    } finally {
+      password.value = ""; submitting = false; user.disabled = false; password.disabled = false;
+      submit.disabled = Date.now() < retryAt;
+    }
+  };
+  surface.append(story, form); gate.append(surface);
+  if (expired) heading.focus(); else user.focus();
+}
+
 function setBusy(v) {
   busy = v;
+  $("#logout").disabled = v;
   document.querySelectorAll("[data-write]").forEach((b) => {
     b.disabled = v || b.dataset.unavailable === "true";
   });
@@ -267,6 +419,8 @@ function unavailable(b, reason) {
 async function load(clear = true) {
   activeLibraryScan?.abort();
   activeLibraryScan = null;
+  if (sessionLocked) return;
+  loadingDraft = captureDraft();
   const g = ++generation, requestedFocus = focusAfterLoad;
   focusAfterLoad = null;
   setReadStatus("正在读取本页…", "loading");
@@ -278,7 +432,7 @@ async function load(clear = true) {
   }
   view.setAttribute("aria-busy", "true");
   try {
-    if (!csrf) csrf = (await api("session")).csrf;
+    if (!csrf && !acceptSession(await api("session"))) return;
     const content = await {
       overview: overviewView,
       jobs: jobsView,
@@ -289,6 +443,8 @@ async function load(clear = true) {
     }[tab]();
     if (g !== generation) return;
     view.replaceChildren(content);
+    loadingDraft = null;
+    restoreSessionDraft();
     setReadStatus("本页读取于 " + new Date().toLocaleTimeString("zh-CN", {hour12: false}), "read");
     view.querySelector("[data-review-heading]")?.focus();
     if (requestedFocus) {
@@ -371,7 +527,7 @@ function jumpTo(id) {
   target.focus({ preventScroll: true });
   target.scrollIntoView({ block: "start", behavior: "instant" });
 }
-window.addEventListener("popstate", () => { readRoute(); focusAfterLoad = "#heading"; load(); });
+window.addEventListener("popstate", () => { if (sessionLocked) return; readRoute(); focusAfterLoad = "#heading"; load(); });
 // 离开页面后只提示快照可能陈旧，不自动刷新并清掉人工草稿，也不触发上游探测。
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden && $("#read-status").dataset.state === "read") {
@@ -381,6 +537,13 @@ document.addEventListener("visibilitychange", () => {
 $(".skip-link").onclick = (e) => { e.preventDefault(); $("#heading").focus(); };
 document.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => navigate(b.dataset.tab)));
 $("#refresh").onclick = () => load();
+$("#logout").onclick = async () => {
+  if (busy || sessionMode !== "authenticated_https") return;
+  setBusy(true);
+  try { await api("logout", {}); lockSession(false); }
+  catch (error) { if (!sessionLocked) fail(error); }
+  finally { setBusy(false); }
+};
 function scopeText(scope) {
   if (!scope) return "统计范围由接口返回；当前未提供全库计数。";
   return scope.truncated
@@ -668,6 +831,7 @@ async function jobView(id) {
       "text",
     );
     target.placeholder = "作品/Season 01/作品 - S01E01.mkv";
+    draftable(form, "single-file", () => draftFields(form), saved => restoreFields(form, saved));
     form.append(
       writeButton(
         "生成文件预览",
@@ -1131,6 +1295,16 @@ class BatchWorkbench {
     this.output.dataset.batchPreview = "true";
     this.editor = new BatchEditor(job, detail, () => this.invalidate());
     this.gate = new ReviewedRequestGate(() => JSON.stringify([this.assistance?.id, this.assistance?.version, this.editor.snapshot()]));
+    draftable(this.node, "batch", () => ({ channel: this.assistance?.id || "manual", values: this.editor.raw() }), saved => {
+      if (saved.channel !== (this.assistance?.id || "manual")) return false;
+      const raw = saved.values, editor = this.editor;
+      if (raw.rows.length !== editor.rows.length || raw.rows.some(row => !editor.rows.some(r => r.source === row.source))) return false;
+      editor.directory.value = raw.directory; editor.display.value = raw.display; editor.season.value = raw.season;
+      editor.mode.value = raw.mode; editor.offset.value = raw.offset; editor.start.value = raw.start;
+      editor.rows.sort((a, b) => raw.rows.findIndex(r => r.source === a.source) - raw.rows.findIndex(r => r.source === b.source));
+      editor.rows.forEach(row => { row.episode = raw.rows.find(r => r.source === row.source).episode; });
+      editor.clearOrder(); editor.renderRows(); editor.update(); this.invalidate();
+    });
     this.preview = writeButton(
       "预览完整整理表",
       () => this.readPreview(),
@@ -1392,6 +1566,7 @@ class NamingAssistance {
     this.season = field(hints, "人工明确的季号（可空，不设默认）", "naming_season", "", "number");
     this.season.min = 1; this.season.max = 99; this.season.step = 1;
     this.hintGate = new ReviewedRequestGate(() => JSON.stringify([this.job.id, this.job.version, this.hints(), this.latest?.id, this.latest?.version]));
+    draftable(hints, "naming-hints", () => draftFields(hints), saved => { if (restoreFields(hints, saved) === false) return false; this.hintGate.invalidate(); this.sync(); });
     for (const event of ["input", "change", "reset"]) hints.addEventListener(event, () => { this.hintGate.invalidate(); this.sync(); });
     this.status = el("p", undefined, "batch-status muted");
     this.status.dataset.namingStatus = "true";
@@ -1887,6 +2062,16 @@ async function subscriptionsView() {
     ]);
   form.append(grid);
   form.classList.add("subscription-editor");
+  draftable(form, "subscription", () => ({ editing: id.readOnly, values: draftFields(form) }), saved => {
+    const savedID = saved.values.find(([key]) => key === "subscription_id")?.[1];
+    if (saved.editing) {
+      const current = data.items.find(item => item.id === savedID);
+      if (!current) return false;
+      version = current.version; id.readOnly = true;
+      if (![...profile.options].some(o => o.value === current.profile)) { const option = el("option", current.profile + "（配置已移除，仅可停用）"); option.value = current.profile; profile.append(option); }
+    }
+    return restoreFields(form, saved.values);
+  });
   const actions = el("div", undefined, "actions"),
     save = writeButton(
       "保存订阅",
@@ -2169,10 +2354,12 @@ async function rulesView() {
     saveDraft,
   );
   form.append(actions, preview);
+  draftable(form, "rule-draft", () => draftFields(form).filter(([name]) => name !== "mapping_context"), saved => { if (restoreFields(form, saved) === false) return false; invalidatePreview(); });
   root.append(form);
   const discovery = panel("从已有媒体目录提取候选"),
     libraryDirectory = field(discovery, "媒体根内的相对系列目录（明确选择）", "library_directory"),
     candidateOutput = el("div");
+  draftable(discovery, "library-directory", () => libraryDirectory.value, saved => { libraryDirectory.value = saved; });
   discovery.append(el("p", "只读取所选目录下的文件名与有界 NFO；最多 512 项、3 层子目录、每份 NFO 64KiB/合计 1MiB、5 秒。拒绝符号链接。已有季仅作观察，不能据此认定新篇章属于下一季；选择候选不授权入库。", "muted"));
   let scanGeneration = 0, lastLibraryDirectory = libraryDirectory.value;
   function invalidateCandidate() {
@@ -2356,7 +2543,7 @@ async function healthView() {
     badge("数据库 " + (health.database === "ok" ? "可读" : health.database || "未知"), health.database === "ok" ? "ok" : ""),
     el(
       "p",
-      "当前模式：仅本机单用户、回环监听。导入NAS镜像不会开放LAN访问；用户已有授权SSH回环隧道可作为访问候选，真实部署仍需核验。",
+      sessionMode === "authenticated_https" ? "当前模式：已认证 HTTPS 管理。会话认证只证明当前访问身份，不代表 qB、Emby、agent 或 Discord 已连接。" : "当前模式：仅本机单用户、回环监听。导入NAS镜像不会开放LAN访问；用户已有授权SSH回环隧道可作为访问候选，真实部署仍需核验。",
       "notice",
     ),
   );
@@ -2372,7 +2559,7 @@ async function healthView() {
     ["命名自动入队", configured("automatic_naming"), "默认关闭；启用不等于agent在线或模型已调用"],
     ["目录 / NFO 局部证据候选", "已实现", "用户明确选目录；候选不授予执行权限"],
     ["TVDB / 在线元数据搜索", "未实现", "无外部元数据接入"],
-    ["LAN管理身份认证", "未实现；仅回环", "已有授权SSH隧道是访问候选，未验真实部署"],
+    ["管理访问身份", sessionMode === "authenticated_https" ? "已启用独立账号 / HTTPS 会话" : "本机单用户 / 无登录", "以当前 session 返回模式为准；真实NAS与客户端信任仍需部署者核验"],
     ["Docker / 真实 NAS", "支持离线镜像包", "CI可验构建与配置；真实NAS部署待验"],
   ].forEach((v) => row(t.body, v));
   p.append(
@@ -2586,6 +2773,12 @@ class ProposalEditor {
     this.proposal = proposal;
     this.node = panel("2 · 有限范围与新版本草稿");
     this.node.dataset.proposalEditor = "true";
+    draftable(this.node, "proposal-draft", () => ({ fields: draftFields(this.node), scopeWasDeclared: this.scopeCheck.checked }), saved => {
+      if (this.proposal.state !== "pending") return false;
+      if (restoreFields(this.node, saved.fields) === false) return false;
+      this.scopeCheck.checked = false; this.scopeCheck.dispatchEvent(new Event("change", { bubbles: true }));
+      changed();
+    });
     const r = proposal.input.rule,
       grid = el("div", undefined, "grid"),
       f = (this.fields = {});

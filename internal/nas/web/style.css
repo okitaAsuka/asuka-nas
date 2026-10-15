@@ -451,3 +451,31 @@ summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 @media (max-width: 650px) {
   .scroll thead, .file-table thead { display: table-header-group; position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
+
+/* Authentication is a separate public surface; hidden workspace DOM is cleared on expiry. */
+.session-actions { display: flex; gap: 8px; }
+#logout { font-size: 11px; }
+#session-gate { min-height: 100vh; display: grid; place-items: center; padding: 36px; background: var(--bg); }
+.login-surface { display: grid; grid-template-columns: 1fr 1fr; width: min(100%, 1020px); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; background: var(--surface); box-shadow: 0 20px 90px #20253412; }
+.login-story { padding: 42px; background: var(--nav); color: #f8e8d9; }
+.login-story .eyebrow { color: #cbbebd; font-size: 8px; }
+.login-story h2 { font-size: 36px; line-height: 1.5; white-space: pre-line; margin: 28px 0; }
+.login-story .landscape { box-shadow: none; margin: 24px 0; }
+.login-story p { color: #c6c7d3; white-space: pre-line; font-size: 12px; line-height: 1.9; }
+.login-form { padding: 48px 42px; align-self: center; }
+.login-form h1 { font-size: 27px; margin: 12px 0; }
+.login-form > .muted { margin: 12px 0 28px; }
+.login-form input { min-height: 46px; font-size: 16px; }
+.login-form button { width: 100%; min-height: 46px; margin-top: 8px; }
+.login-status { font-size: 12px; }
+.login-status:empty { display: none; }
+.login-help { color: var(--muted); font-size: 11px; margin-top: 18px; }
+@media (max-width: 760px) {
+  #session-gate { padding: 20px; }
+  .login-surface { grid-template-columns: 1fr; max-width: 500px; }
+  .login-story { padding: 24px 28px; }
+  .login-story h2 { font-size: 24px; white-space: normal; margin: 14px 0 0; }
+  .login-story .landscape, .login-story p { display: none; }
+  .login-form { padding: 30px 28px; }
+  .session-actions { flex-direction: column; gap: 4px; }
+}

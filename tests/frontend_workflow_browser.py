@@ -154,3 +154,7 @@ with sync_playwright() as p:
     assert not errors,errors
     print('PASS WORKFLOW production Management + SQLite: exact scoped counts, safe summaries, server search/filter/page, selected task/refresh/deep return/history, late success/error/new refresh, load/session retry, double-click subscription CAS, configured/missing/unknown setup, empty data, desktop/390px; no upstream calls; skip link, route titles, focus return/pagination/edit, loading/read/error/stale feedback, reduced motion, 320/390/768/1024 layouts')
     browser.close()
+
+# Separate UI-only authentication fixture; production TLS/auth belongs to the feature lane.
+from session_layout_browser import run_session_contract_checks
+run_session_contract_checks()

@@ -60,6 +60,26 @@ NAS、Caddy、网络/安全设置和真实上游均未触碰。截图中的数�
 
 截图沿用 `/tmp/asuka-workflow-*.png` 与 `/tmp/asuka-naming-*.png`，由既有 CI artifact 按提交 SHA 归档；生产总览/任务桌面与移动四图另有既有日志 SHA256/base64 证据入口。新增生产截图包含加载、减少动态效果、订阅、映射、移动事件等状态。
 
-## 会话接入协调
+## 已实现的认证 UI 与契约边界
 
-parent 已告知 feature lane 正实现 opt-in authenticated HTTPS management，独占 `management.go`、`config.go`、`cmd/asuka-nas/main.go` 和访问模块。UI 不修改这些文件。最终 `/api/session` / login / logout 精确 DTO 到达前不猜 schema 或显示伪登录控件。会话失效应锁定业务区域、保留内存中的非秘密工作，恢复后从新鲜服务状态重建表单；不保存密码，不自动重放后果性请求，旧预览和批准勾选失效。此项最终接入状态以交付回复及本文后续记录为准。
+按 feature lane 已冻结提交 `6b18a6ecf9ef6914b29d0fd1e555bd8e4b650853` 的 `docs/MANAGEMENT_ACCESS_CONTRACT.md` 实现；只读 fetch 该分支，没有 merge/cherry-pick 后端。
+
+- 首先 GET session；旧 `{csrf}` DTO 与 `local_single_user` 兼容，不出现无效 login/logout 控件。
+- `authenticated_https` 未登录显示独立登录界面；只发送 `{username,password}` JSON，无 Authorization、无 login CSRF nonce。登录后 session nonce 只在 JS 内存。
+- 401 `authentication_required` 统一递增页面/会话代数、取消在途请求、清空工作区 DOM 和旧 nonce。所有业务请求暂停，旧会话的迟到成功/401 无权改变新会话。
+- 只对明确注册的批量、人工命名事实、规则草稿、订阅、单文件及局部候选目录保留内存输入；不保存 DOM、密码、nonce、preview digest、服务器版本或批准/排序/范围声明勾选到存储。
+- 登录成功重新 GET 当前业务事实。批量按完整 source 身份恢复行序/集号；manifest 或辅助通道变化时只在只读区保留草稿，不按行索引套入其他文件。订阅编辑从最新列表重取版本和身份；草稿不是自动写入。
+- 旧预览、确认/范围/排序勾选全部失效，必须重新核对和预览；绝不自动重发确认、批准、请求命名或其他 POST。已被服务器接受的先前请求仍应先读持久状态，不承诺撤销。
+- logout 带当前 CSRF；成功或明确 401 后清空草稿并显示登录。网络失败不谎称已退出。忙碌写操作期间禁用退出，避免误解正在保存的效果已取消。
+- 密码尝试后立即清空；关闭/刷新页面不保留草稿；没有 localStorage/sessionStorage。认证失败不区分用户名存在与否。429 遵守 Retry-After、禁用提交，时间到后仍需用户主动登录，无自动登录循环。
+- 健康页和侧栏根据 session 返回的模式显示身份边界；登录成功不表示上游连接成功。
+
+新增独占文件 `tests/session_layout_browser.py`，由 `tests/frontend_workflow_browser.py` 在生产工作台测试之后调用，现有 Makefile/CI 不变。独立 stdout 标明 `MOCK SESSION CONTRACT ONLY`，截图带 `session-mock` 名称。该测试验证真实 Chromium + synthetic HTTP DTO 的 UI 行为，**不验证 TLS、认证服务、cookie 安全属性、密码 verifier 或真实 NAS**；这些仍归 feature lane / parent 最终整合验收。
+
+本地已通过登录/限流/错误、过期确认不重放、fresh-version 预览、批量行序/人工事实恢复、manifest 变化只读保留、订阅当前 CAS、规则重预览门、刷新中的过期恢复、退出丢弃、迟到旧 401、桌面/390px/reduced-motion。截图 `/tmp/asuka-workflow-session-mock-{desktop,mobile,expired}.png` 自动归入既有 CI artifact。
+
+## 已确认 CI 检查点
+
+`59c505602190028fe17889ea3e22bfba955745a1`（认证 UI 接入之前）已通过完整 [CI 38686583766](https://github.com/okitaAsuka/asuka-nas/actions/runs/38686583766)：`make verify`、两组模拟布局门及七组实际 Management/SQLite 浏览器门全部成功。首个检查点的总览门发现刷新 CSS 图标进入可访问名称，已用明确 aria-label 修复，原精确名称断言保持。
+
+最终认证 UI 候选的 SHA、完整 CI 和 screenshot artifact 由交付回复绑定。实际认证后端尚未并入本分支，因此 UI 接入真实 HTTPS 后端仍是明确的集成验收项。真实 NAS/GUI、Caddy、服务凭据与上游连接不在本 lane 验证范围。

@@ -10,6 +10,8 @@
   </head>
   <body>
     <a class="skip-link" href="#heading">跳到主要内容</a>
+    <section id="session-gate" hidden aria-labelledby="session-title"></section>
+    <div id="workspace-shell">
     <aside class="sidebar">
       <a class="brand" href="/" aria-label="asuka nas 首页"><span class="brand-mark" aria-hidden="true">a</span><span>asuka<small>MEDIA WORKSPACE</small></span></a>
       <p class="caption">收藏热爱，安放每一集。</p>
@@ -28,12 +30,13 @@
     <main id="main">
       <header class="page-header">
         <div><div class="eyebrow">ASUKA NAS <span aria-hidden="true">/</span> 番剧工作台</div><h1 id="heading" tabindex="-1">日常总览</h1><p id="page-description" class="page-description">下载、命名、入库。今天的待办，一眼看清。</p></div>
-        <div class="header-actions"><span id="read-status" role="status" aria-live="polite">尚未读取状态</span><button id="refresh" aria-label="刷新状态">刷新状态</button></div>
+        <div class="header-actions"><span id="read-status" role="status" aria-live="polite">尚未读取状态</span><div class="session-actions"><button id="refresh" aria-label="刷新状态">刷新状态</button><button id="logout" hidden>退出登录</button></div></div>
       </header>
       <div id="message" role="status" aria-live="polite" tabindex="-1"></div>
       <div id="view" aria-busy="true"><p class="empty">正在连接本地服务…</p></div>
       <footer><span>ASUKA <span aria-hidden="true">✦</span> YOUR LOCAL MEDIA ARCHIVE</span><span>硬链接入库 · 保留源文件 · Emby 逐文件确认后才就绪</span></footer>
     </main>
+    </div>
     <!-- 原创静态矢量景物，无远端资源、画布循环或装饰性状态。 -->
     <template id="landscape-art">
       <svg class="landscape" viewBox="0 0 520 320" preserveAspectRatio="xMidYMid slice" fill="none" aria-hidden="true" focusable="false">
