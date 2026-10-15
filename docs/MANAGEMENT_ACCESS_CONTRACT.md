@@ -24,6 +24,8 @@
 
 以上只是公开配置片段，不是完整部署配置或凭据。listen 必须明确给出 IP 字面量及非零端口，允许回环、私有地址或容器内通配地址；拒绝公网 IP。origin 必须是规范 HTTPS origin（无路径/查询/用户信息），精确匹配浏览器访问的 Host；监听地址与浏览器地址可不同以支持部署者自行配置的 Docker 映射。不信任 Forwarded/X-Forwarded-*；不按请求动态推断 origin。TLS 最低 1.2，证书须在有效期内、适用于 origin 主机且允许 serverAuth。部署者须让客户端正常信任证书链；本服务不签发证书或安装信任。
 
+origin 的 HTTPS 默认端口须省略（写 `https://nas.example.test`，不能写 `:443`），IP 使用规范完整 IPv4/压缩 IPv6；拒绝 `127.1`、十六进制等浏览器会重新解释的地址，以及数字尾标签的 DNS 名。避免配置校验成功但浏览器规范化后的 Origin 永远无法匹配。
+
 password_hash_env 引用部署者已有 PBKDF2-HMAC-SHA256 verifier，格式 `pbkdf2-sha256$600000$<salt>$<derived-key>`；salt/derived-key 使用**无 padding 标准 Base64**，salt 16–64 字节，derived-key 32 字节，迭代数 600000–1000000。用户名为 1–64 字节 `[A-Za-z0-9][A-Za-z0-9_.-]*`，登录密码为 12–1024 字节有效 UTF-8。不提供创建实际凭据的命令/接口。环境引用及实际密码必须独立于 event/learning bearer 身份；启动验证拒绝相同引用或相同实际密码。没有注册、重设密码或权限管理接口。
 
 启动仅输出固定 `startup_failed: management_*` 码：`listen_invalid`/`origin_invalid` 修正明确地址；`listen_conflict` 移除重复 `-listen` 来源；`credentials_invalid` 核对用户名/env 引用；`credentials_unavailable` 核对部署者提供的 verifier；`identity_reused` 使用独立人类凭据；`tls_required`/`tls_unavailable` 核对既有证书/私钥路径与读取权限；`tls_invalid` 核对主机名、期限、serverAuth；`listen_unavailable` 核对显式地址可绑定性。每个后缀前都有 `management_`。不打印秘密、路径或系统原始错误。恢复配置后重新启动，所有旧会话失效；不提供 HTTP 降级或证书验证绕过。

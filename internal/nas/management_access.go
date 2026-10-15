@@ -1,6 +1,7 @@
 package nas
 
 import (
+	"bytes"
 	"crypto/pbkdf2"
 	"crypto/rand"
 	"crypto/sha256"
@@ -67,7 +68,7 @@ func (c ManagementAccessConfig) Validate(serviceEnvs ...string) error {
 		return errors.New("management_origin_invalid")
 	}
 	if ip := net.ParseIP(host); ip != nil {
-		if !ip.IsLoopback() && !ip.IsPrivate() {
+		if host != ip.String() || (!ip.IsLoopback() && !ip.IsPrivate()) {
 			return errors.New("management_origin_invalid")
 		}
 	} else {
@@ -79,10 +80,16 @@ func (c ManagementAccessConfig) Validate(serviceEnvs ...string) error {
 				return errors.New("management_origin_invalid")
 			}
 		}
+		// 浏览器会将数字尾标签按 IPv4 解释（含简写/十六进制），不能当 DNS 接受。
+		last := host[strings.LastIndex(host, ".")+1:]
+		if strings.Trim(last, "0123456789") == "" || strings.HasPrefix(last, "0x") {
+			return errors.New("management_origin_invalid")
+		}
 	}
 	if p := u.Port(); p != "" {
 		n, err := strconv.Atoi(p)
-		if err != nil || n < 1 || n > 65535 || strconv.Itoa(n) != p {
+		// HTTPS 默认端口在浏览器 Origin 中省略；拒绝不可逐字匹配的配置。
+		if err != nil || n < 1 || n > 65535 || n == 443 || strconv.Itoa(n) != p {
 			return errors.New("management_origin_invalid")
 		}
 	}
@@ -381,7 +388,15 @@ func (a *managementAccess) claimLogin(remote string) time.Duration {
 
 func decodeAccessRequest(w http.ResponseWriter, r *http.Request, v any) error {
 	r.Body = http.MaxBytesReader(w, r.Body, 4096)
-	d := json.NewDecoder(r.Body)
+	body, err := io.ReadAll(r.Body)
+	if err != nil || !utf8.Valid(body) {
+		return errors.New("invalid_request")
+	}
+	body = bytes.TrimSpace(body)
+	if len(body) < 2 || body[0] != '{' || body[len(body)-1] != '}' {
+		return errors.New("invalid_request")
+	}
+	d := json.NewDecoder(bytes.NewReader(body))
 	d.DisallowUnknownFields()
 	if d.Decode(v) != nil || d.Decode(new(any)) != io.EOF {
 		return errors.New("invalid_request")

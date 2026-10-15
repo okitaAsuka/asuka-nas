@@ -126,7 +126,7 @@ func TestManagementAccessConfiguration(t *testing.T) {
 			t.Fatal("unsafe listen accepted", listen)
 		}
 	}
-	for _, origin := range []string{"", "http://nas.example.test", "https://nas.example.test/", "https://nas.example.test?", "https://nas.example.test?token=secret", "https://nas.example.test#fragment", "https://u:p@nas.example.test", "https://NAS.example.test", "https://nas.example.test.", "https://nas.example.test:", "https://nas.example.test:0", "https://nas.example.test:08787", "https://nas.example.test:65536", "https://0.0.0.0", "https://[::]", "https://8.8.8.8", "https://bad_name", "https://-bad", "https://a..b", "https://[fe80::1%25eth0]"} {
+	for _, origin := range []string{"", "http://nas.example.test", "https://nas.example.test/", "https://nas.example.test?", "https://nas.example.test?token=secret", "https://nas.example.test#fragment", "https://u:p@nas.example.test", "https://NAS.example.test", "https://nas.example.test.", "https://nas.example.test:", "https://nas.example.test:0", "https://nas.example.test:08787", "https://nas.example.test:65536", "https://nas.example.test:443", "https://0.0.0.0", "https://[::]", "https://[0:0:0:0:0:0:0:1]", "https://127.1", "https://0x7f000001", "https://nas.123", "https://8.8.8.8", "https://bad_name", "https://-bad", "https://a..b", "https://[fe80::1%25eth0]"} {
 		v := c
 		v.Origin = origin
 		if err := v.Validate(); err == nil {
@@ -334,7 +334,7 @@ func TestManagementAccessLoginSessionCSRFAndLogout(t *testing.T) {
 func TestManagementAccessLimitsAndFailurePaths(t *testing.T) {
 	_, v := accessTestVerifier(t)
 	newAccess := func() *managementAccess { return newManagementAccess("admin", v) }
-	for _, body := range []string{`{}`, `null`, `[]`, `{"username":"admin","password":"short"}`, `{"username":"admin","password":"` + strings.Repeat("x", 1025) + `"}`, `{"username":"admin","password":"` + accessTestPassword + `","unknown":true}`, `{"username":"admin","password":"` + accessTestPassword + `"}{}`, strings.Repeat(" ", 4097)} {
+	for _, body := range []string{`{}`, `null`, `[]`, "{\"username\":\"admin\",\"password\":\"synthetic-invalid-utf8-\xff\"}", `{"username":"admin","password":"short"}`, `{"username":"admin","password":"` + strings.Repeat("x", 1025) + `"}`, `{"username":"admin","password":"` + accessTestPassword + `","unknown":true}`, `{"username":"admin","password":"` + accessTestPassword + `"}{}`, strings.Repeat(" ", 4097)} {
 		w := accessTestHandle(newAccess(), accessTestRequest("POST", "/api/login", body))
 		if w.Code != 400 || len(w.Result().Cookies()) != 0 {
 			t.Fatal("invalid login accepted", w.Code)
@@ -545,7 +545,7 @@ func TestManagementAccessCookieAndSessionLookupConcurrency(t *testing.T) {
 	_, v := accessTestVerifier(t)
 	a := newManagementAccess("admin", v)
 	c, session := accessTestLogin(t, a, nil)
-	for _, value := range []string{"", "short", strings.Repeat("z", 64), strings.ToUpper(c.Value)} {
+	for _, value := range []string{"", "short", strings.Repeat("z", 64), strings.Repeat("A", 64)} {
 		r := accessTestRequest("GET", "/api/jobs", "")
 		r.AddCookie(&http.Cookie{Name: managementCookie, Value: value})
 		if w := accessTestHandle(a, r); w.Code != 401 {

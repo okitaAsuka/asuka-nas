@@ -39,7 +39,7 @@ GOCACHE=/workspace/scratch/nas-feature-toolchain/cache \
 go test -race -count=1 -v internal/nas/management_access.go internal/nas/management_access_test.go
 ```
 
-首轮 8 个顶层 access 测试全部 PASS（22.055s，另含 30 个边界/证书子测试）。覆盖配置规范化、KDF/verifier 拒绝、服务实际口令复用、匿名静态/session bootstrap、精确 Host/Origin、伪造 forwarded headers、JSON/大小/方法限制、cookie 属性、旧 nonce/cookie、logout/relogin/restart/绝对到期、容量、随机源失败、单个 KDF 在途、全局/IP 并发节流、实际 TLS 与正确 CA 信任、错误 CA 拒绝。最终提交与新代码 CI 结果由交付回复绑定，不能只引用这次早期检查。
+配置/JSON 加固后，8 个顶层 access 测试全部 PASS（21.974s，另含 30 个边界/证书子测试）。覆盖配置规范化（默认端口、IPv4 简写、IPv6）、KDF/verifier 拒绝、服务实际口令复用、匿名静态/session bootstrap、精确 Host/Origin、伪造 forwarded headers、JSON/UTF-8/大小/方法限制、cookie 属性、旧 nonce/cookie、logout/relogin/restart/绝对到期、容量、随机源失败、单个 KDF 在途、全局/IP 并发节流、实际 TLS 与正确 CA 信任、错误 CA 拒绝。最终提交与新代码完整 CI 结果由交付回复绑定；独立测试不替代 SQLite 集成或浏览器检查。
 
 SQLite 集成 `TestManagementAccessProductionTLSAndFrozenWorkflow` 使用生产 TLS listener/Management/SQLite 和临时 fake qB/Emby：匿名不能读任务；登录后完整人工 batch；独立 session nonce；原意图重复确认幂等、tampered digest 拒绝；logout 拒绝重放；已批准任务继续硬链接/逐文件发现/独立 stop。另有默认回环兼容/配置纯校验/plain HTTP 拒绝。CLI 子进程覆盖纯校验不访问文件/秘密、重复 listen 拒绝、缺/坏 verifier、缺 TLS，所有失败无上游访问、无遗留 listener、无秘密错误输出。这些用原 `make verify` 在既有 CI 执行；不增加独立测试入口或修改其他 lane fixture。
 
