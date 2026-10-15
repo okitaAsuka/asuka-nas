@@ -3,43 +3,54 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>asuka-nas · 本地管理</title>
+    <meta name="theme-color" content="#202534" />
+    <title>日常总览 · asuka 番剧工作台</title>
     <link rel="stylesheet" href="/style.css" />
     <script type="module" src="/app.js"></script>
   </head>
   <body>
-    <aside>
-      <a class="brand" href="/">asuka<span>nas</span></a>
-      <p class="caption">自己的媒体库，明确的每一步。</p>
+    <a class="skip-link" href="#heading">跳到主要内容</a>
+    <aside class="sidebar">
+      <a class="brand" href="/" aria-label="asuka nas 首页"><span class="brand-mark" aria-hidden="true">a</span><span>asuka<small>MEDIA WORKSPACE</small></span></a>
+      <p class="caption">收藏热爱，安放每一集。</p>
+      <div class="nav-label" aria-hidden="true">工作空间 / WORKSPACE</div>
       <nav aria-label="主导航">
-        <button data-tab="overview" class="selected" aria-current="page">日常总览</button
-        ><button data-tab="jobs">任务与入库</button
-        ><button data-tab="subscriptions">订阅管理</button
-        ><button data-tab="rules">命名规则</button
-        ><button data-tab="events">事件记录</button
-        ><button data-tab="health">健康与接入</button>
+        <button data-tab="overview" class="selected" aria-current="page"><span class="nav-icon" aria-hidden="true">◈</span>日常总览</button>
+        <button data-tab="jobs"><span class="nav-icon" aria-hidden="true">▤</span>任务与入库</button>
+        <button data-tab="subscriptions"><span class="nav-icon" aria-hidden="true">◉</span>订阅管理</button>
+        <button data-tab="rules"><span class="nav-icon" aria-hidden="true">⌘</span>命名规则</button>
+        <button data-tab="events"><span class="nav-icon" aria-hidden="true">≋</span>事件记录</button>
+        <button data-tab="health"><span class="nav-icon" aria-hidden="true">◇</span>健康与接入</button>
       </nav>
-      <div class="local">
-        <span class="dot"></span>仅本机管理<br /><small
-          >人工可继续 · 保留做种源文件</small
-        >
-      </div>
+      <div class="sidebar-note"><span aria-hidden="true">✦</span><p>让整理退居幕后。<br />把时间留给下一集。</p></div>
+      <div class="local"><span class="dot"></span>本机管理工作台<small>源文件保留 · 人工始终可继续</small></div>
     </aside>
-    <main>
-      <header>
-        <div>
-          <div class="eyebrow">ASUKA / MEDIA WORKSPACE</div>
-          <h1 id="heading" tabindex="-1">日常总览</h1>
-        </div>
-        <button id="refresh">刷新状态</button>
+    <main id="main">
+      <header class="page-header">
+        <div><div class="eyebrow">ASUKA NAS <span aria-hidden="true">/</span> 番剧工作台</div><h1 id="heading" tabindex="-1">日常总览</h1><p id="page-description" class="page-description">下载、命名、入库。今天的待办，一眼看清。</p></div>
+        <div class="header-actions"><span id="read-status" role="status" aria-live="polite">尚未读取状态</span><button id="refresh">刷新状态</button></div>
       </header>
-      <div id="message" role="status" aria-live="polite"></div>
-      <div id="view" aria-busy="true">
-        <p class="empty">正在连接本地服务…</p>
-      </div>
-      <footer>
-        硬链接入库 · 不覆盖、不删除源文件 · Emby 确认发现后才显示就绪
-      </footer>
+      <div id="message" role="status" aria-live="polite" tabindex="-1"></div>
+      <div id="view" aria-busy="true"><p class="empty">正在连接本地服务…</p></div>
+      <footer><span>ASUKA <span aria-hidden="true">✦</span> YOUR LOCAL MEDIA ARCHIVE</span><span>硬链接入库 · 保留源文件 · Emby 逐文件确认后才就绪</span></footer>
     </main>
+    <!-- 原创静态矢量景物，无远端资源、画布循环或装饰性状态。 -->
+    <template id="landscape-art">
+      <svg class="landscape" viewBox="0 0 520 320" fill="none" aria-hidden="true" focusable="false">
+        <defs><linearGradient id="sky" x2="0" y2="320" gradientUnits="userSpaceOnUse"><stop stop-color="#282d47"/><stop offset="1" stop-color="#80515b"/></linearGradient><linearGradient id="sun" x2="0" y2="200" gradientUnits="userSpaceOnUse"><stop stop-color="#ffe4c0"/><stop offset="1" stop-color="#ee826e"/></linearGradient></defs>
+        <rect width="520" height="320" rx="14" fill="url(#sky)"/>
+        <circle cx="332" cy="132" r="76" stroke="#d2b3b1" stroke-opacity=".3"/><circle cx="332" cy="132" r="103" stroke="#d2b3b1" stroke-opacity=".15"/>
+        <circle cx="332" cy="132" r="58" fill="url(#sun)"/>
+        <path d="m0 229 100-71 89 59 59-30 77 33 77-69 118 70v99H0Z" fill="#4b455d"/>
+        <path d="m0 263 103-61 115 63 124-66 178 72v49H0Z" fill="#303346"/>
+        <path d="m0 295 150-35 111 28 144-48 115 31v49H0Z" fill="#242939"/>
+        <path d="M63 53h5m-2-2v5m350 2h7m-4-3v7M233 76h4m-2-2v4M446 126h4m-2-2v4" stroke="#f5d9c5" stroke-linecap="round"/>
+        <path d="m131 80 83-23" stroke="#eeb4a3" stroke-opacity=".5"/>
+        <path d="M51 280h125m-119-29 113-5-7 10-104 4m7-2-3 54m94-58 3 58M55 274h113M88 258v13m47-15v15" stroke="#171f30" stroke-width="6"/>
+        <path d="M380 293v-41m-11 12 11-14 11 14m-16 29v-23h10v23" stroke="#c49e92" stroke-width="2"/>
+        <path d="M395 302h78M402 309h49M205 304h96" stroke="#b18b88" stroke-opacity=".3"/>
+        <path d="M22 35V22h13m450 0h13v13M22 285v13h13m450 0h13v-13" stroke="#fff0df" stroke-opacity=".6"/>
+      </svg>
+    </template>
   </body>
 </html>

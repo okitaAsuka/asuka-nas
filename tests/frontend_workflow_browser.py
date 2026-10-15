@@ -26,6 +26,23 @@ with sync_playwright() as p:
     expect(page.locator('[data-workflow=emby] strong')).to_have_text('21')
     expect(page.locator('[data-workflow=failed] strong')).to_have_text('22')
     expect(page.locator('.scope-note')).to_contain_text('全库 106')
+    expect(page.locator('#read-status')).to_contain_text('本页读取于')
+    expect(page).to_have_title('日常总览 · asuka 番剧工作台')
+    # The skip link moves focus without replacing the app's hash route.
+    original_url=page.url
+    page.keyboard.press('Tab');expect(page.locator('.skip-link')).to_be_focused()
+    page.keyboard.press('Enter');expect(page.locator('#heading')).to_be_focused()
+    assert page.url==original_url
+    # Reduced motion removes transitions/entrance animation, without changing state.
+    page.emulate_media(reduced_motion='reduce')
+    assert page.locator('#view > div').evaluate('(n)=>getComputedStyle(n).animationName')=='none'
+    assert page.locator('[data-workflow=naming]').evaluate('(n)=>getComputedStyle(n).transitionDuration')=='0s'
+    capture('real-reduced-motion-desktop',full=False)
+    page.emulate_media(reduced_motion='no-preference')
+    # Leaving a page never clears a draft or claims a new snapshot was fetched.
+    page.evaluate('document.dispatchEvent(new Event("visibilitychange"))')
+    expect(page.locator('#read-status')).to_have_attribute('data-state','stale')
+    nav('刷新状态');expect(page.locator('#read-status')).to_have_attribute('data-state','read')
     capture('real-overview-desktop')
     page.set_viewport_size({'width':390,'height':844});capture('real-overview-mobile')
     page.set_viewport_size({'width':1440,'height':1000})
@@ -47,12 +64,14 @@ with sync_playwright() as p:
     nav('← 返回任务');expect(page.locator('.task-card')).to_have_count(1)
     expect(page.locator('[name=job_search]')).to_have_value('Example')
     expect(page.locator('[name=job_filter]')).to_have_value('naming')
+    expect(page.get_by_role('button',name='查看详情',exact=True)).to_be_focused()
     page.go_back();expect(page.locator('[data-naming=true]')).to_be_visible()
     nav('任务与入库');expect(page.locator('.task-card')).to_have_count(100)
     expect(page.locator('.task-card').filter(has_text='名称未知')).to_have_count(1)
     assert page.locator('.task-card img,.task-card a,.task-card script').count()==0
     assert page.evaluate('window.PWNED') is None
     nav('下一页');expect(page.locator('.task-card')).to_have_count(6)
+    expect(page.locator('#task-results')).to_be_focused()
     selected=page.locator('.task-card').first.get_attribute('data-job-id')
     page.get_by_role('button',name='查看详情').first.click()
     expect(page.locator('#job-recovery')).to_contain_text(selected)
@@ -71,6 +90,9 @@ with sync_playwright() as p:
     for status in ['success','error']:
         held=[];page.route('**/api/jobs?*',lambda route:held.append(route))
         nav('刷新状态');page.wait_for_timeout(80);assert len(held)==1
+        expect(page.locator('.loading-state')).to_be_visible()
+        expect(page.locator('#read-status')).to_have_attribute('data-state','loading')
+        if status=='success':capture('real-loading-desktop',full=False)
         nav('健康与接入');expect(page.get_by_role('heading',name='本地服务与接入边界')).to_be_visible()
         if status=='success':held[0].fulfill(response=held[0].fetch())
         else:held[0].fulfill(status=503,json={'error':'store_failed'})
@@ -87,10 +109,15 @@ with sync_playwright() as p:
     # Current load failure has a working retry, retaining the route and filters.
     page.route('**/api/jobs?*',lambda route:route.abort())
     nav('刷新状态');expect(page.get_by_role('heading',name='暂时无法读取')).to_be_visible()
+    expect(page.locator('#read-status')).to_have_attribute('data-state','error')
     capture('real-load-error',full=False)
     page.unroute('**/api/jobs?*');nav('重新加载');expect(page.locator('.task-card')).to_have_count(100)
     nav('订阅管理')
     expect(page.get_by_role('heading',name='接入步骤 · 配置文件管理')).to_be_visible()
+    nav('编辑');expect(page.locator('[name=subscription_name]')).to_be_focused()
+    capture('real-subscriptions-desktop',full=False)
+    page.set_viewport_size({'width':390,'height':844});capture('real-subscriptions-mobile',full=False)
+    page.set_viewport_size({'width':1440,'height':1000})
     page.get_by_role('button',name='停用',exact=True).evaluate('(b)=>{b.click();b.click()}')
     expect(page.get_by_role('button',name='启用',exact=True)).to_be_visible()
     assert len(writes)==1,writes
@@ -99,6 +126,17 @@ with sync_playwright() as p:
     expect(page.get_by_text('已提供（地址隐藏）',exact=True)).to_have_count(2)
     capture('real-setup-desktop')
     page.set_viewport_size({'width':390,'height':844});capture('real-setup-mobile')
+    page.set_viewport_size({'width':1440,'height':1000})
+    nav('命名规则')
+    expect(page.locator('.mapping-group')).to_have_count(3)
+    capture('real-mapping-desktop',full=False)
+    for width in [320,390,768,1024]:
+        page.set_viewport_size({'width':width,'height':900})
+        assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'),width
+    page.set_viewport_size({'width':390,'height':844})
+    page.locator('.mapping-group').first.scroll_into_view_if_needed();capture('real-mapping-mobile',full=False)
+    nav('事件记录');expect(page.get_by_role('heading',name='任务事件 · 可重放游标')).to_be_visible()
+    capture('real-events-mobile',full=False)
     page.set_viewport_size({'width':1440,'height':1000})
     # Empty database, missing source profile, and initial session failure recovery.
     page.route('**/api/session',lambda route:route.abort())
@@ -112,5 +150,5 @@ with sync_playwright() as p:
     nav('健康与接入');expect(page.get_by_text('缺失',exact=True)).to_have_count(2)
     assert not external,external
     assert not errors,errors
-    print('PASS WORKFLOW production Management + SQLite: exact scoped counts, safe summaries, server search/filter/page, selected task/refresh/deep return/history, late success/error/new refresh, load/session retry, double-click subscription CAS, configured/missing/unknown setup, empty data, desktop/390px; no upstream calls')
+    print('PASS WORKFLOW production Management + SQLite: exact scoped counts, safe summaries, server search/filter/page, selected task/refresh/deep return/history, late success/error/new refresh, load/session retry, double-click subscription CAS, configured/missing/unknown setup, empty data, desktop/390px; no upstream calls; skip link, route titles, focus return/pagination/edit, loading/read/error/stale feedback, reduced motion, 320/390/768/1024 layouts')
     browser.close()
