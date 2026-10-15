@@ -247,12 +247,13 @@ footer > span > span { margin: 0 7px; color: var(--accent); }
   .header-actions { gap: 7px; padding-top: 5px; }
   #refresh { min-height: 44px; padding: 8px 10px; font-size: 11px; }
   .workflow-hero { grid-template-columns: 1fr; }
-  .hero-copy { padding: 25px 24px 20px; }
-  .hero-copy h2 { font-size: 34px; }
+  .hero-copy { padding: 22px 24px 18px; }
+  .hero-copy h2 { font-size: 30px; margin: 12px 0; }
   .hero-art { padding: 0 16px 16px; }
   .landscape { aspect-ratio: 2.3; object-fit: cover; }
   .art-caption { bottom: 31px; left: 33px; }
-  .hero-line { white-space: pre-line; }
+  .hero-line { white-space: pre-line; font-size: 11px; }
+  .hero-copy .actions { margin-top: 15px; }
   .hero-copy button { min-height: 44px; }
   .workflow-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .workflow-metric strong { font-size: 31px; }
@@ -444,4 +445,9 @@ summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 @media (forced-colors: active) {
   button, .badge, .task-card, .panel { border: 1px solid ButtonText; }
   nav button.selected { outline: 2px solid Highlight; }
+}
+
+/* Keep column headers in the accessibility tree when the visual table becomes cards. */
+@media (max-width: 650px) {
+  .scroll thead, .file-table thead { display: table-header-group; position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }

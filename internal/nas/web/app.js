@@ -151,7 +151,10 @@ function time(v) {
 }
 function fail(err) {
   message.className = "error";
+  message.setAttribute("role", "alert");
   message.textContent = errors[err.message] || `操作未完成：${err.message}`;
+  message.focus({ preventScroll: true });
+  message.scrollIntoView({ block: "nearest", behavior: "instant" });
 }
 async function api(path, data, signal) {
   let r;
@@ -199,6 +202,7 @@ async function mutate(fn) {
   try {
     await fn();
     if (g === generation) {
+      message.setAttribute("role", "status");
       message.className = "success";
       message.textContent = "操作已保存。";
       await load(false);
@@ -269,6 +273,7 @@ async function load(clear = true) {
   if (clear) {
     message.textContent = "";
     message.className = "";
+    message.setAttribute("role", "status");
     view.replaceChildren(loadingState());
   }
   view.setAttribute("aria-busy", "true");
@@ -989,6 +994,8 @@ class BatchEditor {
     });
   }
   update() {
+    // 输入修改后移除上一轮字段错误；新预览仍由服务器完整校验。
+    [this.directory, this.display, this.season, this.offset, this.start, this.order].forEach(n => n.removeAttribute("aria-invalid"));
     const mode = this.mode.value;
     this.offset.closest("label").hidden = mode !== "extracted";
     this.start.closest("label").hidden = mode !== "sequential";

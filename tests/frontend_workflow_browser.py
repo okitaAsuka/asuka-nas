@@ -19,7 +19,7 @@ with sync_playwright() as p:
         expect(page.locator('#view')).to_have_attribute('aria-busy','false')
     def capture(name, full=True):
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
-        page.screenshot(path=f'/tmp/asuka-workflow-{name}.png',full_page=full)
+        page.screenshot(path=f'/tmp/asuka-workflow-{name}.png',full_page=full,animations='disabled')
     page.goto(base)
     expect(page.locator('[data-workflow=downloading] strong')).to_have_text('21')
     expect(page.locator('[data-workflow=naming] strong')).to_have_text('22')
@@ -110,6 +110,8 @@ with sync_playwright() as p:
     page.route('**/api/jobs?*',lambda route:route.abort())
     nav('刷新状态');expect(page.get_by_role('heading',name='暂时无法读取')).to_be_visible()
     expect(page.locator('#read-status')).to_have_attribute('data-state','error')
+    expect(page.locator('#message')).to_have_attribute('role','alert')
+    expect(page.locator('#message')).to_be_focused()
     capture('real-load-error',full=False)
     page.unroute('**/api/jobs?*');nav('重新加载');expect(page.locator('.task-card')).to_have_count(100)
     nav('订阅管理')
