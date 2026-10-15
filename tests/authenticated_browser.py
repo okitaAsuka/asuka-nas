@@ -58,7 +58,7 @@ with tempfile.TemporaryDirectory(prefix='asuka-ui-nss-tools-') as tools:
             security = response.security_details()
             assert security and security['protocol'].startswith('TLS')
             expect(page.get_by_role('heading',name='欢迎回到 asuka')).to_be_visible()
-            assert page.request.get(base + '/api/jobs').status == 401
+            assert page.evaluate("async () => (await fetch('/api/jobs')).status") == 401
             capture('login-desktop')
             page.set_viewport_size({'width':390,'height':844});capture('login-mobile')
             page.emulate_media(reduced_motion='reduce')
@@ -103,7 +103,7 @@ with tempfile.TemporaryDirectory(prefix='asuka-ui-nss-tools-') as tools:
             assert '未知' in page.locator('#view').inner_text()
             click('退出登录')
             expect(page.get_by_role('heading',name='欢迎回到 asuka')).to_be_visible()
-            assert page.request.get(base + '/api/jobs').status == 401
+            assert page.evaluate("async () => (await fetch('/api/jobs')).status") == 401
             assert not [c for c in context.cookies() if c['name'] == '__Host-asuka_session']
             assert page.evaluate('localStorage.length + sessionStorage.length') == 0
             assert not errors, errors
