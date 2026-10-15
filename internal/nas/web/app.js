@@ -2526,7 +2526,7 @@ function setupGuide(profileCount) {
   p.append(el("p", `${profileCount} 个来源档案已配置。${profileCount ? "页面可选择来源引用、启停与重试抓取。" : "缺少 RSS 来源档案，当前不能保存新的启用订阅。"} RSS URL、服务地址与凭据需由部署者在本地配置；本页没有这些字段的保存接口。`, "notice"));
   const steps = el("ol", undefined, "setup-steps");
   [
-    ["准备离线包", "先解压离线包；极空间 GUI 导入 image.tar。config.template.json 是公开模板，复制为实际挂载的 config.json；GUI 的启动参数、挂载与回环访问仍需在 NAS 上核验。"],
+    ["准备离线包", "先解压离线包；极空间 GUI 导入 image.tar。config.template.json 是公开模板，复制为实际挂载的 config.json；GUI 的启动参数、挂载与访问入口仍需在 NAS 上核验。"],
     ["填写来源与服务", "在实际 config.json 的 subscriptions 中填写唯一 id 和 RSS url；qb_url、emby_url 填部署者确认的服务地址。RSS token 只留在本地配置，不能粘贴到显示名称、规则或来源 ID。"],
     ["提供秘密环境变量", "qB 登录使用 ASUKA_NAS_QB_USERNAME / ASUKA_NAS_QB_PASSWORD；Emby 使用 ASUKA_NAS_EMBY_TOKEN。credentials.env.template 提供变量名，实际值由运行环境注入，不在此页面读取或保存。"],
     ["核对挂载再重启", "核对 downloads 与 library 不重叠且支持同文件系统硬链接；qB 下载路径与服务一致，Emby 媒体路径一致。配置校验只验证格式；重启后回到订阅页选择来源并启用，核对真实轮询与任务证据。"],
@@ -2537,7 +2537,7 @@ function setupGuide(profileCount) {
   p.append(template);
   const checks = el("details"); checks.append(el("summary", "部署检查清单"));
   const list = el("ul");
-  ["关闭数据库后备份 SQLite；本版开发迁移未授权升级真实生产库。", "保持管理回环监听；本轮不改 LAN、鉴权、Caddy 或网络设置。", "核对 Linux openat2、非 root 用户权限、挂载路径与实际硬链接；不通过复制绕过跨设备。", "从一条测试订阅开始，逐项核对下载完成、命名预览、人工确认、硬链接及 Emby 真实 Path 发现。", "命名/学习/事件服务默认关闭；启用配置不证明 agent、模型或通知消费者在线。"].forEach((text) => list.append(el("li", text)));
+  ["关闭数据库后备份 SQLite；本版开发迁移未授权升级真实生产库。", sessionMode === "authenticated_https" ? "当前使用独立 HTTPS 会话。证书信任、监听与端口映射由部署者核验；现有 Caddy 保持不变。" : "当前是回环单用户入口，不可直接公开。网络访问需先完成独立身份与可信 HTTPS 配置；现有 Caddy 保持不变。", "核对 Linux openat2、非 root 用户权限、挂载路径与实际硬链接；不通过复制绕过跨设备。", "从一条测试订阅开始，逐项核对下载完成、命名预览、人工确认、硬链接及 Emby 真实 Path 发现。", "命名/学习/事件服务默认关闭；启用配置不证明 agent、模型或通知消费者在线。"].forEach((text) => list.append(el("li", text)));
   checks.append(list); p.append(checks); return p;
 }
 async function healthView() {
