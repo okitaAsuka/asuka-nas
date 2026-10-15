@@ -82,4 +82,14 @@ NAS、Caddy、网络/安全设置和真实上游均未触碰。截图中的数�
 
 `59c505602190028fe17889ea3e22bfba955745a1`（认证 UI 接入之前）已通过完整 [CI 38686583766](https://github.com/okitaAsuka/asuka-nas/actions/runs/38686583766)：`make verify`、两组模拟布局门及七组实际 Management/SQLite 浏览器门全部成功。首个检查点的总览门发现刷新 CSS 图标进入可访问名称，已用明确 aria-label 修复，原精确名称断言保持。
 
-最终认证 UI 候选的 SHA、完整 CI 和 screenshot artifact 由交付回复绑定。实际认证后端尚未并入本分支，因此 UI 接入真实 HTTPS 后端仍是明确的集成验收项。真实 NAS/GUI、Caddy、服务凭据与上游连接不在本 lane 验证范围。
+最终认证 UI 候选的 SHA、完整 CI 和 screenshot artifact 由交付回复绑定。实际认证后端未并入主 UI 分支；真实 HTTPS 的浏览器验收在下述独立 worktree 执行，结果必须绑定该验证提交。真实 NAS/GUI、Caddy、服务凭据与上游连接不在本 lane 验证范围。
+
+## 真实认证浏览器验证分支
+
+parent 随后授权独立临时集成 worktree。最终后端 `a440497ace6da2328625f4fcc8e91b2dcb7264cb` 与早期冻结合同相比仅补充配置规范化/启动错误说明，浏览器 DTO 未变。验证 worktree 为 `/workspace/asuka-nas-ui-auth-validation`，独立分支 `codex/nas-ui-auth-validation-20261015`，首个验证提交 `89ecd9299d8256fe13798301b9a7888eb3d59145`；它将后端 a440497 与 UI `acc41c848588df28ef761bae65e9a2f68e83cb4b` 组合，**不是 parent 的最终集成分支，不能替代主 UI 分支交付**。
+
+主 UI 分支新增 `tests/authenticated_browser.py`，只供隔离的实际后端 fixture 调用。验证分支独有 `internal/nas/ui_authenticated_browser_test.go` 与 `management_workflow_test.go` 的一行测试调用；没有修改生产后端或共享 CI/Makefile。该分支复用现有 CI 执行真实 TLS listener、Management、SQLite、实际临时硬链接与 fake qB/Emby。
+
+实际认证浏览器脚本只允许一次性 CI runner：将测试 CA 导入 runner 的 NSS，结束后移除；没有修改 HOME、没有系统安装、没有修改 NAS 信任，也不使用 `ignore_https_errors`、SPKI 例外或证书忽略参数。若 runner 没有 certutil，仅把发行版 `libnss3-tools` 软件包下载并解包到临时目录。证书管理路径依据 [Chromium 官方 Linux Cert Management](https://chromium.googlesource.com/chromium/src/+/main/docs/linux/cert_management.md)。此临时测试工具不是应用依赖或打包内容。
+
+验收断言包括：正常 TLS 验证、匿名读取拒绝、真实错误/成功登录、Secure/HttpOnly/SameSite cookie、服务器真正将会话到期后确认 401、旧批准清空/草稿保留、不自动重放、重新预览后明确批准、logout 撤销，及浏览器批准后的实际临时硬链接/逐文件 fake Emby 发现/独立停止做种。截图为 `asuka-workflow-auth-real-{login-desktop,login-mobile,overview-mobile,preview-desktop,preview-mobile,expired-mobile}.png`，由既有 artifact 归档。该验证提交的运行结果与最终主 UI SHA 在交付回复提供；不是实机 NAS 验收。
